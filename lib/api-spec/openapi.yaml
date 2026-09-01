@@ -3,13 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Disaster information and situational reporting API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: incidents
+    description: Incident records
+  - name: evacuations
+    description: Evacuation centers and population tracking
+  - name: damages
+    description: Structure damage assessments
+  - name: dashboard
+    description: Operational dashboard summaries
+  - name: reports
+    description: Standard situational reports
 paths:
   /healthz:
     get:
@@ -24,7 +34,286 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /incidents:
+    get:
+      operationId: listIncidents
+      tags: [incidents]
+      summary: List incidents
+      parameters:
+        - $ref: "#/components/parameters/StatusFilter"
+        - $ref: "#/components/parameters/SearchFilter"
+      responses:
+        "200":
+          description: Incident records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Incident"
+    post:
+      operationId: createIncident
+      tags: [incidents]
+      summary: Create an incident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentInput"
+      responses:
+        "201":
+          description: Created incident
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+  /incidents/{id}:
+    get:
+      operationId: getIncident
+      tags: [incidents]
+      summary: Get an incident
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Incident record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateIncident
+      tags: [incidents]
+      summary: Update an incident
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentUpdate"
+      responses:
+        "200":
+          description: Updated incident
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+    delete:
+      operationId: deleteIncident
+      tags: [incidents]
+      summary: Delete an incident
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted incident
+  /incidents/{id}/overview:
+    get:
+      operationId: getIncidentOverview
+      tags: [incidents]
+      summary: Get incident overview with live totals
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Incident overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentOverview"
+  /evacuation-centers:
+    get:
+      operationId: listEvacuationCenters
+      tags: [evacuations]
+      summary: List evacuation centers
+      parameters:
+        - $ref: "#/components/parameters/IncidentIdFilter"
+        - $ref: "#/components/parameters/SearchFilter"
+      responses:
+        "200":
+          description: Evacuation centers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvacuationCenter"
+    post:
+      operationId: createEvacuationCenter
+      tags: [evacuations]
+      summary: Register an evacuation center
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvacuationCenterInput"
+      responses:
+        "201":
+          description: Created evacuation center
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvacuationCenter"
+  /evacuation-centers/{id}:
+    patch:
+      operationId: updateEvacuationCenter
+      tags: [evacuations]
+      summary: Update an evacuation center
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvacuationCenterUpdate"
+      responses:
+        "200":
+          description: Updated evacuation center
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvacuationCenter"
+    delete:
+      operationId: deleteEvacuationCenter
+      tags: [evacuations]
+      summary: Remove an evacuation center
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted evacuation center
+  /structure-damages:
+    get:
+      operationId: listStructureDamages
+      tags: [damages]
+      summary: List structure damage assessments
+      parameters:
+        - $ref: "#/components/parameters/IncidentIdFilter"
+      responses:
+        "200":
+          description: Damage assessments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StructureDamage"
+    post:
+      operationId: createStructureDamage
+      tags: [damages]
+      summary: Record structure damage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StructureDamageInput"
+      responses:
+        "201":
+          description: Created damage assessment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StructureDamage"
+  /structure-damages/{id}:
+    patch:
+      operationId: updateStructureDamage
+      tags: [damages]
+      summary: Update damage assessment
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StructureDamageUpdate"
+      responses:
+        "200":
+          description: Updated damage assessment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StructureDamage"
+    delete:
+      operationId: deleteStructureDamage
+      tags: [damages]
+      summary: Delete damage assessment
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted damage assessment
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get operational dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /reports/situational:
+    post:
+      operationId: generateSituationalReport
+      tags: [reports]
+      summary: Generate a standard situational report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SituationalReportInput"
+      responses:
+        "200":
+          description: Generated situational report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SituationalReport"
 components:
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    IncidentIdFilter:
+      name: incidentId
+      in: query
+      required: false
+      schema:
+        type: integer
+    StatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/IncidentStatus"
+    SearchFilter:
+      name: search
+      in: query
+      required: false
+      schema:
+        type: string
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +322,207 @@ components:
           type: string
       required:
         - status
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    IncidentStatus:
+      type: string
+      enum: [Active, Monitoring, Closed]
+    IncidentType:
+      type: string
+      enum: [Typhoon, Flooding, Earthquake, Fire, Landslide, Other]
+    Severity:
+      type: string
+      enum: [Low, Moderate, High, Critical]
+    Incident:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        title: { type: string }
+        incidentType: { $ref: "#/components/schemas/IncidentType" }
+        status: { $ref: "#/components/schemas/IncidentStatus" }
+        severity: { $ref: "#/components/schemas/Severity" }
+        location: { type: string }
+        startedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        summary: { type: string }
+        affectedPopulation: { type: integer }
+        evacuatedPopulation: { type: integer }
+        deaths: { type: integer }
+        injuries: { type: integer }
+        missing: { type: integer }
+        partiallyDamaged: { type: integer }
+        totallyDamaged: { type: integer }
+      required: [id, code, title, incidentType, status, severity, location, startedAt, updatedAt, summary, affectedPopulation, evacuatedPopulation, deaths, injuries, missing, partiallyDamaged, totallyDamaged]
+    IncidentInput:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        incidentType: { $ref: "#/components/schemas/IncidentType" }
+        status: { $ref: "#/components/schemas/IncidentStatus" }
+        severity: { $ref: "#/components/schemas/Severity" }
+        location: { type: string, minLength: 1 }
+        startedAt: { type: string, format: date-time }
+        summary: { type: string }
+        affectedPopulation: { type: integer, minimum: 0 }
+        evacuatedPopulation: { type: integer, minimum: 0 }
+        deaths: { type: integer, minimum: 0 }
+        injuries: { type: integer, minimum: 0 }
+        missing: { type: integer, minimum: 0 }
+      required: [title, incidentType, status, severity, location, startedAt, summary]
+    IncidentUpdate:
+      allOf:
+        - $ref: "#/components/schemas/IncidentInput"
+      description: Fields to update on an incident
+    EvacuationCenterStatus:
+      type: string
+      enum: [Open, Full, Closed]
+    EvacuationCenter:
+      type: object
+      properties:
+        id: { type: integer }
+        incidentId: { type: integer }
+        name: { type: string }
+        barangay: { type: string }
+        address: { type: string }
+        capacity: { type: integer }
+        currentPopulation: { type: integer }
+        families: { type: integer }
+        men: { type: integer }
+        women: { type: integer }
+        children: { type: integer }
+        seniors: { type: integer }
+        pwd: { type: integer }
+        status: { $ref: "#/components/schemas/EvacuationCenterStatus" }
+        contactPerson: { type: string }
+        contactNumber: { type: string }
+        updatedAt: { type: string, format: date-time }
+      required: [id, incidentId, name, barangay, address, capacity, currentPopulation, families, men, women, children, seniors, pwd, status, contactPerson, contactNumber, updatedAt]
+    EvacuationCenterInput:
+      type: object
+      properties:
+        incidentId: { type: integer }
+        name: { type: string, minLength: 1 }
+        barangay: { type: string }
+        address: { type: string }
+        capacity: { type: integer, minimum: 1 }
+        currentPopulation: { type: integer, minimum: 0 }
+        families: { type: integer, minimum: 0 }
+        men: { type: integer, minimum: 0 }
+        women: { type: integer, minimum: 0 }
+        children: { type: integer, minimum: 0 }
+        seniors: { type: integer, minimum: 0 }
+        pwd: { type: integer, minimum: 0 }
+        status: { $ref: "#/components/schemas/EvacuationCenterStatus" }
+        contactPerson: { type: string }
+        contactNumber: { type: string }
+      required: [incidentId, name, barangay, address, capacity, currentPopulation, families, men, women, children, seniors, pwd, status, contactPerson, contactNumber]
+    EvacuationCenterUpdate:
+      allOf:
+        - $ref: "#/components/schemas/EvacuationCenterInput"
+    StructureType:
+      type: string
+      enum: [House, School, Road, Bridge, HealthFacility, GovernmentBuilding, Business, Utility, Other]
+    StructureDamage:
+      type: object
+      properties:
+        id: { type: integer }
+        incidentId: { type: integer }
+        structureType: { $ref: "#/components/schemas/StructureType" }
+        location: { type: string }
+        partiallyDamaged: { type: integer }
+        totallyDamaged: { type: integer }
+        estimatedLoss: { type: number }
+        notes: { type: string }
+        updatedAt: { type: string, format: date-time }
+      required: [id, incidentId, structureType, location, partiallyDamaged, totallyDamaged, estimatedLoss, notes, updatedAt]
+    StructureDamageInput:
+      type: object
+      properties:
+        incidentId: { type: integer }
+        structureType: { $ref: "#/components/schemas/StructureType" }
+        location: { type: string }
+        partiallyDamaged: { type: integer, minimum: 0 }
+        totallyDamaged: { type: integer, minimum: 0 }
+        estimatedLoss: { type: number, minimum: 0 }
+        notes: { type: string }
+      required: [incidentId, structureType, location, partiallyDamaged, totallyDamaged, estimatedLoss, notes]
+    StructureDamageUpdate:
+      allOf:
+        - $ref: "#/components/schemas/StructureDamageInput"
+    IncidentOverview:
+      type: object
+      properties:
+        incident: { $ref: "#/components/schemas/Incident" }
+        centers:
+          type: array
+          items: { $ref: "#/components/schemas/EvacuationCenter" }
+        damages:
+          type: array
+          items: { $ref: "#/components/schemas/StructureDamage" }
+        totalCenters: { type: integer }
+        totalEvacuated: { type: integer }
+        totalCapacity: { type: integer }
+        totalFamilies: { type: integer }
+        totalPartiallyDamaged: { type: integer }
+        totalTotallyDamaged: { type: integer }
+      required: [incident, centers, damages, totalCenters, totalEvacuated, totalCapacity, totalFamilies, totalPartiallyDamaged, totalTotallyDamaged]
+    DashboardSummary:
+      type: object
+      properties:
+        activeIncidents: { type: integer }
+        totalIncidents: { type: integer }
+        totalEvacuationCenters: { type: integer }
+        totalEvacuated: { type: integer }
+        totalCapacity: { type: integer }
+        totalFamilies: { type: integer }
+        partiallyDamaged: { type: integer }
+        totallyDamaged: { type: integer }
+        populationByIncident:
+          type: array
+          items:
+            type: object
+            properties:
+              incidentId: { type: integer }
+              label: { type: string }
+              population: { type: integer }
+            required: [incidentId, label, population]
+        recentIncidents:
+          type: array
+          items: { $ref: "#/components/schemas/Incident" }
+      required: [activeIncidents, totalIncidents, totalEvacuationCenters, totalEvacuated, totalCapacity, totalFamilies, partiallyDamaged, totallyDamaged, populationByIncident, recentIncidents]
+    SituationalReportInput:
+      type: object
+      properties:
+        incidentId: { type: integer }
+        reportDate: { type: string, format: date }
+        preparedBy: { type: string }
+        operationalSummary: { type: string }
+        priorityNeeds: { type: string }
+        actionsTaken: { type: string }
+        nextSteps: { type: string }
+      required: [incidentId, reportDate, preparedBy, operationalSummary, priorityNeeds, actionsTaken, nextSteps]
+    SituationalReport:
+      type: object
+      properties:
+        reportNumber: { type: string }
+        generatedAt: { type: string, format: date-time }
+        reportDate: { type: string, format: date }
+        preparedBy: { type: string }
+        incident: { $ref: "#/components/schemas/Incident" }
+        centers:
+          type: array
+          items: { $ref: "#/components/schemas/EvacuationCenter" }
+        damages:
+          type: array
+          items: { $ref: "#/components/schemas/StructureDamage" }
+        operationalSummary: { type: string }
+        priorityNeeds: { type: string }
+        actionsTaken: { type: string }
+        nextSteps: { type: string }
+      required: [reportNumber, generatedAt, reportDate, preparedBy, incident, centers, damages, operationalSummary, priorityNeeds, actionsTaken, nextSteps]
 

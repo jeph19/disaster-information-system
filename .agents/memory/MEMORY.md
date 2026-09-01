@@ -1,0 +1,1 @@
+- [Zod generator/runtime compatibility](zod-generator-runtime.md) — OpenAPI integer schemas currently require the workspace’s Zod 4 runtime.

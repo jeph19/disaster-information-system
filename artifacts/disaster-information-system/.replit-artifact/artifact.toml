@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Disaster Information System"
+description = "A field-ready disaster information system for tracking incidents, evacuations, evacuation centers, damaged structures, response actions, and generating standardized situational reports for emergency operations teams."
+version = "1.0.0"
+id = "artifacts/disaster-information-system"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19738
+
+[services.development]
+run = "pnpm --filter @workspace/disaster-information-system run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/disaster-information-system", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/disaster-information-system/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19738"
+BASE_PATH = "/"

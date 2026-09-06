@@ -641,3 +641,38 @@ export const GenerateSituationalReportResponse = zod.object({
 })
 
 
+/**
+ * @summary List workspace users
+ */
+export const ListUsersResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['Administrator', 'Coordinator', 'Viewer']),
+  "status": zod.enum(['Active', 'Disabled']),
+  "createdAt": zod.coerce.date()
+})
+export const ListUsersResponse = zod.array(ListUsersResponseItem)
+
+
+/**
+ * @summary Update a workspace user's role
+ */
+export const UpdateUserRoleParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const UpdateUserRoleBody = zod.object({
+  "role": zod.enum(['Administrator', 'Coordinator', 'Viewer'])
+})
+
+export const UpdateUserRoleResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['Administrator', 'Coordinator', 'Viewer']),
+  "status": zod.enum(['Active', 'Disabled']),
+  "createdAt": zod.coerce.date()
+})
+
+

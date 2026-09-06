@@ -45,6 +45,7 @@ import {
   parseId,
   touchIncident,
 } from "../lib/disaster";
+import { requireEditor } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -67,7 +68,7 @@ router.get("/incidents", async (req, res): Promise<void> => {
   res.json(ListIncidentsResponse.parse(incidents));
 });
 
-router.post("/incidents", async (req, res): Promise<void> => {
+router.post("/incidents", requireEditor, async (req, res): Promise<void> => {
   const parsed = CreateIncidentBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -97,7 +98,7 @@ router.get("/incidents/:id", async (req, res): Promise<void> => {
   res.json(GetIncidentResponse.parse(incident));
 });
 
-router.patch("/incidents/:id", async (req, res): Promise<void> => {
+router.patch("/incidents/:id", requireEditor, async (req, res): Promise<void> => {
   const params = UpdateIncidentParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -120,7 +121,7 @@ router.patch("/incidents/:id", async (req, res): Promise<void> => {
   res.json(UpdateIncidentResponse.parse(incident));
 });
 
-router.delete("/incidents/:id", async (req, res): Promise<void> => {
+router.delete("/incidents/:id", requireEditor, async (req, res): Promise<void> => {
   const params = DeleteIncidentParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -169,7 +170,7 @@ router.get("/evacuation-centers", async (req, res): Promise<void> => {
   res.json(ListEvacuationCentersResponse.parse(centers));
 });
 
-router.post("/evacuation-centers", async (req, res): Promise<void> => {
+router.post("/evacuation-centers", requireEditor, async (req, res): Promise<void> => {
   const parsed = CreateEvacuationCenterBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -180,7 +181,7 @@ router.post("/evacuation-centers", async (req, res): Promise<void> => {
   res.status(201).json(CreateEvacuationCenterResponse.parse(center));
 });
 
-router.patch("/evacuation-centers/:id", async (req, res): Promise<void> => {
+router.patch("/evacuation-centers/:id", requireEditor, async (req, res): Promise<void> => {
   const params = UpdateEvacuationCenterParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -204,7 +205,7 @@ router.patch("/evacuation-centers/:id", async (req, res): Promise<void> => {
   res.json(UpdateEvacuationCenterResponse.parse(center));
 });
 
-router.delete("/evacuation-centers/:id", async (req, res): Promise<void> => {
+router.delete("/evacuation-centers/:id", requireEditor, async (req, res): Promise<void> => {
   const params = DeleteEvacuationCenterParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -237,7 +238,7 @@ router.get("/structure-damages", async (req, res): Promise<void> => {
   res.json(ListStructureDamagesResponse.parse(damages));
 });
 
-router.post("/structure-damages", async (req, res): Promise<void> => {
+router.post("/structure-damages", requireEditor, async (req, res): Promise<void> => {
   const parsed = CreateStructureDamageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -248,7 +249,7 @@ router.post("/structure-damages", async (req, res): Promise<void> => {
   res.status(201).json(CreateStructureDamageResponse.parse(damage));
 });
 
-router.patch("/structure-damages/:id", async (req, res): Promise<void> => {
+router.patch("/structure-damages/:id", requireEditor, async (req, res): Promise<void> => {
   const params = UpdateStructureDamageParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -272,7 +273,7 @@ router.patch("/structure-damages/:id", async (req, res): Promise<void> => {
   res.json(UpdateStructureDamageResponse.parse(damage));
 });
 
-router.delete("/structure-damages/:id", async (req, res): Promise<void> => {
+router.delete("/structure-damages/:id", requireEditor, async (req, res): Promise<void> => {
   const params = DeleteStructureDamageParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });

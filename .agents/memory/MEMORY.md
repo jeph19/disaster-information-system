@@ -1,1 +1,2 @@
 - [Zod generator/runtime compatibility](zod-generator-runtime.md) — OpenAPI integer schemas currently require the workspace’s Zod 4 runtime.
+- [Clerk workspace access](clerk-workspace-access.md) — first account bootstraps as administrator; later accounts default to read-only until assigned.

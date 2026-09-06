@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './appUser';
+export * from './appUserStatus';
 export * from './dashboardSummary';
 export * from './dashboardSummaryPopulationByIncidentItem';
 export * from './error';
@@ -13,6 +15,7 @@ export * from './evacuationCenter';
 export * from './evacuationCenterInput';
 export * from './evacuationCenterStatus';
 export * from './evacuationCenterUpdate';
+export * from './forbiddenResponse';
 export * from './healthStatus';
 export * from './incident';
 export * from './incidentIdFilterParameter';
@@ -34,3 +37,6 @@ export * from './structureDamage';
 export * from './structureDamageInput';
 export * from './structureDamageUpdate';
 export * from './structureType';
+export * from './unauthorizedResponse';
+export * from './userRole';
+export * from './userRoleInput';

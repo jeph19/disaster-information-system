@@ -20,6 +20,8 @@ tags:
     description: Operational dashboard summaries
   - name: reports
     description: Standard situational reports
+  - name: users
+    description: Workspace user management
 paths:
   /healthz:
     get:
@@ -281,6 +283,54 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SituationalReport"
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List workspace users
+      responses:
+        "200":
+          description: Workspace users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AppUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /users/{id}/role:
+    patch:
+      operationId: updateUserRole
+      tags: [users]
+      summary: Update a workspace user's role
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserRoleInput"
+      responses:
+        "200":
+          description: Updated workspace user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
   parameters:
     IdPath:
@@ -310,6 +360,18 @@ components:
   responses:
     NotFound:
       description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Administrator access required
       content:
         application/json:
           schema:
@@ -525,4 +587,24 @@ components:
         actionsTaken: { type: string }
         nextSteps: { type: string }
       required: [reportNumber, generatedAt, reportDate, preparedBy, incident, centers, damages, operationalSummary, priorityNeeds, actionsTaken, nextSteps]
+    UserRole:
+      type: string
+      enum: [Administrator, Coordinator, Viewer]
+    AppUser:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role: { $ref: "#/components/schemas/UserRole" }
+        status:
+          type: string
+          enum: [Active, Disabled]
+        createdAt: { type: string, format: date-time }
+      required: [id, name, email, role, status, createdAt]
+    UserRoleInput:
+      type: object
+      properties:
+        role: { $ref: "#/components/schemas/UserRole" }
+      required: [role]
 

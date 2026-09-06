@@ -23,6 +23,7 @@ import {
   Shield,
   Trash2,
   Users,
+  UserRoundCog,
   X,
 } from 'lucide-react';
 import {
@@ -51,6 +52,8 @@ import {
   useListEvacuationCenters,
   useListIncidents,
   useListStructureDamages,
+  useListUsers,
+  useUpdateUserRole,
   useUpdateEvacuationCenter,
   useUpdateIncident,
   useUpdateStructureDamage,
@@ -63,7 +66,10 @@ import {
   type SituationalReport,
   type StructureDamage,
   type StructureDamageInput,
+  type AppUser,
+  UserRole,
 } from '@workspace/api-client-react';
+import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
 import { Link, Route, Switch, useLocation, useParams, Router as WouterRouter } from 'wouter';
 import { ErrorBoundary } from '@/components/error-boundary';
 import NotFound from '@/pages/not-found';
@@ -108,10 +114,13 @@ function EmptyPanel({ title, copy, action }: { title: string; copy: string; acti
 function Shell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileNav, setMobileNav] = useState(false);
+  const { user } = useUser();
+  const { signOut } = useClerk();
   const nav = [
     { href: '/', label: 'Command overview', icon: Home },
     { href: '/incidents', label: 'Incident register', icon: Radio },
     { href: '/reports', label: 'Situation reports', icon: FileText },
+    { href: '/users', label: 'User management', icon: UserRoundCog },
   ];
   return <div className="app-shell">
     <aside className="sidebar">
@@ -122,11 +131,11 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="nav-label">Operations desk</div>
         {nav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`nav-item ${location === href || (href !== '/' && location.startsWith(href)) ? 'active' : ''}`} data-testid={`link-${slug(label)}`}><Icon size={16} strokeWidth={1.8} /><span>{label}</span>{href === '/' && <span className="online-dot" style={{ marginLeft: 'auto' }} />}</Link>)}
       </div>
-      <div className="nav-section" style={{ marginTop: 26 }}>
+       <div className="nav-section" style={{ marginTop: 26 }}>
         <div className="nav-label">Workspace</div>
         <Link href="/settings" className={`nav-item ${location.startsWith('/settings') ? 'active' : ''}`} data-testid="link-settings"><Settings2 size={16} strokeWidth={1.8} /><span>Settings</span></Link>
       </div>
-      <div className="sidebar-footer"><div className="operator"><div className="operator-avatar">MA</div><div><div className="operator-name">Mara Alvarez</div><div className="operator-role">Duty officer · On shift</div></div></div></div>
+       <div className="sidebar-footer"><div className="operator"><div className="operator-avatar">{(user?.firstName?.[0] ?? user?.emailAddresses[0]?.emailAddress[0] ?? 'U').toUpperCase()}</div><div style={{ minWidth: 0 }}><div className="operator-name">{user?.fullName ?? user?.primaryEmailAddress?.emailAddress ?? 'Signed-in operator'}</div><div className="operator-role">Authenticated operator</div></div></div><button className="btn btn-quiet" style={{ width: '100%', marginTop: 14, color: '#c5d9d0', borderColor: 'rgba(223,243,232,.2)' }} onClick={() => signOut()} data-testid="button-sign-out">Sign out</button></div>
     </aside>
     <main className="main-area">
       <header className="topbar">
@@ -134,7 +143,7 @@ function Shell({ children }: { children: ReactNode }) {
         <div><div className="topbar-kicker">MUNICIPALITY OF NOVELETA / LOCAL DISASTER RISK REDUCTION AND MANAGEMENT OFFICE EOC</div><div className="topbar-title">Response coordination workspace</div></div>
         <div className="flex items-center gap-3"><span className="online-dot" /><span className="panel-meta">Live sync · 14:32</span></div>
       </header>
-      {mobileNav && <div style={{ position: 'fixed', inset: '66px 0 auto 0', zIndex: 20, background: '#173b3b', padding: 12 }}><div className="nav-label">Navigate</div>{nav.concat([{ href: '/settings', label: 'Settings', icon: Settings2 }]).map(({ href, label, icon: Icon }) => <Link key={href} href={href} className="nav-item" onClick={() => setMobileNav(false)} data-testid={`mobile-link-${slug(label)}`}><Icon size={16} />{label}</Link>)}</div>}
+       {mobileNav && <div style={{ position: 'fixed', inset: '66px 0 auto 0', zIndex: 20, background: '#173b3b', padding: 12 }}><div className="nav-label">Navigate</div>{nav.concat([{ href: '/settings', label: 'Settings', icon: Settings2 }]).map(({ href, label, icon: Icon }) => <Link key={href} href={href} className="nav-item" onClick={() => setMobileNav(false)} data-testid={`mobile-link-${slug(label)}`}><Icon size={16} />{label}</Link>)}</div>}
       {children}
     </main>
   </div>;
@@ -300,13 +309,48 @@ function SettingsPage() {
   return <div className="content"><div className="page-head"><div><div className="eyebrow">Workspace configuration</div><h1 className="page-title">Settings</h1><div className="page-desc">Keep the organization identity and duty officer details used in official reports up to date.</div></div></div><div className="two-col"><section className="panel"><div className="panel-header"><div><div className="panel-title">Organization profile</div><div className="panel-meta">Shown on generated reports</div></div><Building2 size={17} color="#347d74" /></div><form className="panel-body" onSubmit={save}><div className="form-grid"><Field label="Municipality" full><input value={form.municipality} onChange={e => setForm({...form, municipality:e.target.value})} data-testid="input-settings-municipality" /></Field><Field label="Operations desk" full><input value={form.desk} onChange={e => setForm({...form, desk:e.target.value})} data-testid="input-settings-desk" /></Field><Field label="Duty officer"><input value={form.officer} onChange={e => setForm({...form, officer:e.target.value})} data-testid="input-settings-officer" /></Field><Field label="Contact email"><input type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} data-testid="input-settings-email" /></Field><Field label="Timezone"><select value={form.timezone} onChange={e => setForm({...form, timezone:e.target.value})} data-testid="select-settings-timezone"><option>Asia/Manila</option><option>UTC</option></select></Field></div><button className="btn btn-primary" style={{ marginTop:22 }} data-testid="button-save-settings"><Check size={14} /> Save workspace settings</button>{saved && <div style={{ color:'#2d7a6e', fontSize:11, marginTop:12 }} data-testid="status-settings-saved">Settings saved for this session.</div>}</form></section><section className="panel"><div className="panel-header"><div><div className="panel-title">System status</div><div className="panel-meta">Service availability</div></div><Shield size={17} color="#c08b2e" /></div><div className="panel-body"><div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:16, borderBottom:'1px solid #e9e4d9' }}><div><div className="incident-name">Disaster information API</div><div className="incident-location">Live data connection</div></div><StatusTag value={health.isSuccess ? 'Operational' : health.isLoading ? 'Checking' : 'Unavailable'} /></div><div style={{ paddingTop:18, color:'#72817b', fontSize:12, lineHeight:1.7 }}>This workspace uses a shared operational record. Changes made by another desk are reflected on the next live synchronization cycle.</div><div style={{ marginTop:22, background:'#edf3ee', padding:14, borderRadius:7, display:'flex', gap:10, alignItems:'flex-start' }}><Users size={15} color="#377f74" /><div><div style={{ fontSize:12, fontWeight:800, color:'#365953' }}>Shift handover ready</div><div style={{ fontSize:11, color:'#71817b', marginTop:3 }}>Your current officer profile is attached to report generation.</div></div></div></div></section></div></div>;
 }
 
+function UsersPage() {
+  const usersQuery = useListUsers({ query: { queryKey: ['users'] } });
+  const updateRole = useUpdateUserRole();
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const users = usersQuery.data ?? [];
+  const saveRole = (user: AppUser, role: AppUser['role']) => {
+    updateRole.mutate({ id: user.id, data: { role } }, { onSuccess: () => { setSavedId(user.id); usersQuery.refetch(); window.setTimeout(() => setSavedId(null), 1800); } });
+  };
+  return <div className="content"><div className="page-head"><div><div className="eyebrow">Access control</div><h1 className="page-title">User management</h1><div className="page-desc">Review the people who can access the Noveleta EOC workspace and assign the least access they need.</div></div><div className="access-note"><Shield size={14} /> Administrator view</div></div>
+    <section className="panel"><div className="panel-header"><div><div className="panel-title">Workspace accounts</div><div className="panel-meta">Managed sign-in accounts · role changes take effect immediately</div></div><Users size={17} color="#347d74" /></div>
+      {usersQuery.isLoading ? <LoadingPanel rows={4} /> : usersQuery.isError ? <ErrorPanel onRetry={() => usersQuery.refetch()} message="Only administrators can view workspace users." /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>User</th><th>Email</th><th>Status</th><th>Role</th><th>Joined</th></tr></thead><tbody>{users.map(user => <tr key={user.id} data-testid={`row-user-${user.id}`}><td><div className="user-cell"><div className="user-avatar">{user.name.slice(0, 1).toUpperCase()}</div><div><div className="incident-name">{user.name}</div><div className="incident-location">{user.id}</div></div></div></td><td>{user.email || 'No email listed'}</td><td><StatusTag value={user.status} /></td><td><select className="select" value={user.role} onChange={e => saveRole(user, e.target.value as AppUser['role'])} disabled={updateRole.isPending} data-testid={`select-user-role-${user.id}`}><option value={UserRole.Administrator}>Administrator</option><option value={UserRole.Coordinator}>Coordinator</option><option value={UserRole.Viewer}>Viewer</option></select>{savedId === user.id && <span className="saved-inline">Saved</span>}</td><td><span className="panel-meta">{dateLabel(user.createdAt)}</span></td></tr>)}</tbody></table></div>}
+    </section>
+    <div className="role-grid"><div className="role-card"><div className="role-name">Administrator</div><div className="role-copy">Manage accounts and access every workspace function.</div></div><div className="role-card"><div className="role-name">Coordinator</div><div className="role-copy">Create and update incidents, shelters, damage records, and reports.</div></div><div className="role-card"><div className="role-name">Viewer</div><div className="role-copy">Read the operational picture without changing shared records.</div></div></div>
+  </div>;
+}
+
 function Router() {
   const [location] = useLocation();
-  return <ErrorBoundary resetKey={location}><Shell><Switch><Route path="/" component={Dashboard} /><Route path="/incidents" component={IncidentsPage} /><Route path="/incidents/:id" component={IncidentDetail} /><Route path="/reports" component={ReportsPage} /><Route path="/settings" component={SettingsPage} /><Route component={NotFound} /></Switch></Shell></ErrorBoundary>;
+  return <ErrorBoundary resetKey={location}><Shell><Switch><Route path="/" component={Dashboard} /><Route path="/incidents" component={IncidentsPage} /><Route path="/incidents/:id" component={IncidentDetail} /><Route path="/reports" component={ReportsPage} /><Route path="/users" component={UsersPage} /><Route path="/settings" component={SettingsPage} /><Route component={NotFound} /></Switch></Shell></ErrorBoundary>;
+}
+
+function WelcomePage() {
+  return <div className="auth-shell"><div className="auth-hero"><div className="brand-mark">/\/</div><div className="brand-title">sentinel</div><div className="brand-subtitle">Noveleta EOC</div><div className="auth-kicker">MUNICIPALITY OF NOVELETA / LOCAL DISASTER RISK REDUCTION AND MANAGEMENT OFFICE EOC</div><h1>One shared operational picture for every response desk.</h1><p>Securely coordinate incidents, evacuation centers, impact assessments, and official situation reports from one authenticated workspace.</p><div className="auth-points"><span><Shield size={14} /> Shared PostgreSQL record</span><span><Users size={14} /> Role-based access</span><span><Radio size={14} /> Live operational sync</span></div></div><div className="auth-card"><div className="eyebrow">Restricted operations workspace</div><h2>Sign in to Sentinel</h2><p>Use your authorized EOC account to continue.</p><Link href="/sign-in" className="btn btn-primary auth-action" data-testid="link-sign-in"><Shield size={15} /> Sign in</Link><div className="auth-divider"><span>New operator?</span></div><Link href="/sign-up" className="btn btn-secondary auth-action" data-testid="link-sign-up">Request an account</Link><div className="auth-foot">Accounts are reviewed by an administrator before operational access is assigned.</div></div></div>;
+}
+
+function AuthPage({ mode }: { mode: 'sign-in' | 'sign-up' }) {
+  return <div className="auth-shell auth-form-shell"><div className="auth-form-brand"><Link href="/" className="no-underline"><div className="brand-mark">/\/</div><div className="brand-title">sentinel</div><div className="brand-subtitle">Noveleta EOC</div></Link><div className="auth-kicker">SECURE RESPONSE COORDINATION</div></div><div className="clerk-card">{mode === 'sign-in' ? <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" fallbackRedirectUrl="/" appearance={{ variables: { colorPrimary: '#26766e', colorBackground: '#fbf8f1', borderRadius: '8px' } }} /> : <SignUp routing="path" path="/sign-up" signInUrl="/sign-in" fallbackRedirectUrl="/" appearance={{ variables: { colorPrimary: '#26766e', colorBackground: '#fbf8f1', borderRadius: '8px' } }} />}</div></div>;
+}
+
+function AuthRouter() {
+  const [location] = useLocation();
+  const { isLoaded, isSignedIn } = useAuth();
+  if (location === '/sign-in') return <AuthPage mode="sign-in" />;
+  if (location === '/sign-up') return <AuthPage mode="sign-up" />;
+  if (!isLoaded) return <div className="auth-loading"><LoaderCircle size={22} className="animate-spin" /> Loading secure workspace…</div>;
+  return isSignedIn ? <Router /> : <WelcomePage />;
 }
 
 function App() {
-  return <QueryClientProvider client={queryClient}><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router /></WouterRouter></QueryClientProvider>;
+  const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+  if (!publishableKey) return <div className="auth-loading">Authentication is not configured.</div>;
+  return <QueryClientProvider client={queryClient}><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><ClerkProvider publishableKey={publishableKey}><AuthRouter /></ClerkProvider></WouterRouter></QueryClientProvider>;
 }
 
 export default App;

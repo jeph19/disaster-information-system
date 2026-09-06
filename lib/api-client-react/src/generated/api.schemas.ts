@@ -246,10 +246,50 @@ export interface SituationalReport {
   nextSteps: string;
 }
 
+export type UserRole = typeof UserRole[keyof typeof UserRole];
+
+
+export const UserRole = {
+  Administrator: 'Administrator',
+  Coordinator: 'Coordinator',
+  Viewer: 'Viewer',
+} as const;
+
+export type AppUserStatus = typeof AppUserStatus[keyof typeof AppUserStatus];
+
+
+export const AppUserStatus = {
+  Active: 'Active',
+  Disabled: 'Disabled',
+} as const;
+
+export interface AppUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  status: AppUserStatus;
+  createdAt: string;
+}
+
+export interface UserRoleInput {
+  role: UserRole;
+}
+
 /**
  * Resource not found
  */
 export type NotFoundResponse = Error;
+
+/**
+ * Authentication required
+ */
+export type UnauthorizedResponse = Error;
+
+/**
+ * Administrator access required
+ */
+export type ForbiddenResponse = Error;
 
 export type IncidentIdFilterParameter = number;
 

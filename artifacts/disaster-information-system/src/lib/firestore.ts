@@ -129,11 +129,17 @@ let seedPromise: Promise<void> | undefined;
 export async function ensureSeedData(): Promise<void> {
   if (!seedPromise) {
     seedPromise = (async () => {
+      const seedMarker = await getDoc(doc(firestore, names.settings, 'seed_status'));
+      if (seedMarker.exists()) return;
       const existing = await records<Incident>(names.incidents);
-      if (existing.length) return;
+      if (existing.length) {
+        await setDoc(doc(firestore, names.settings, 'seed_status'), { initialized: true });
+        return;
+      }
       await Promise.all(seedIncidents.map(item => putRecord(names.incidents, item.id, { ...item, startedAt: dateValue(item.startedAt), updatedAt: dateValue(item.updatedAt) })));
       await Promise.all(seedCenters.map(item => putRecord(names.centers, item.id, { ...item, updatedAt: dateValue(item.updatedAt) })));
       await Promise.all(seedDamages.map(item => putRecord(names.damages, item.id, { ...item, updatedAt: dateValue(item.updatedAt) })));
+      await setDoc(doc(firestore, names.settings, 'seed_status'), { initialized: true });
     })().catch(error => { seedPromise = undefined; throw error; });
   }
   await seedPromise;

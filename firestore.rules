@@ -47,7 +47,8 @@ service cloud.firestore {
 
     match /disaster_settings/{document} {
       allow read: if signedIn();
-      allow create, update: if isAdministrator();
+      allow create: if signedIn() && document == 'seed_status';
+      allow update: if isAdministrator();
     }
   }
 }

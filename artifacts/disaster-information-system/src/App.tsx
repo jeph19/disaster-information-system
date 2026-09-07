@@ -59,6 +59,8 @@ import {
   updateUserRole,
   upsertUser,
   getUser,
+  getOrganizationProfile as getCloudOrganizationProfile,
+  saveOrganizationProfile,
   type UserRole,
   type EvacuationCenter,
   type EvacuationCenterInput,
@@ -103,7 +105,7 @@ const defaultOrganizationProfile: OrganizationProfile = {
   timezone: 'Asia/Manila',
 };
 const organizationProfileKey = 'sentinel-organization-profile';
-const getOrganizationProfile = (): OrganizationProfile => {
+const getLocalOrganizationProfile = (): OrganizationProfile => {
   try {
     const stored = window.localStorage.getItem(organizationProfileKey);
     return stored ? { ...defaultOrganizationProfile, ...JSON.parse(stored) } : defaultOrganizationProfile;
@@ -322,12 +324,17 @@ function ReportsPage({ user }: { user: LocalUser }) {
   const [selected, setSelected] = useState('');
   const [form, setForm] = useState({ reportDate: new Date().toISOString().slice(0,10), preparedBy: user.name, operationalSummary: 'Field desks continue to coordinate evacuation, damage assessment, and essential service restoration.', priorityNeeds: 'Potable water, family hygiene kits, and additional medical support.', actionsTaken: 'Evacuation centers activated. Barangay focal points are submitting rolling headcounts.', nextSteps: 'Validate the next headcount cycle and consolidate outstanding damage assessments.' });
   const [report, setReport] = useState<SituationalReport | null>(null);
-  const [organization, setOrganization] = useState<OrganizationProfile>(getOrganizationProfile);
+  const [organization, setOrganization] = useState<OrganizationProfile>(getLocalOrganizationProfile);
   const incidents = incidentsQuery.data ?? [];
   useEffect(() => { if (!selected && incidents[0]) setSelected(String(incidents[0].id)); }, [incidents, selected]);
   useEffect(() => { setForm(previous => ({ ...previous, preparedBy: user.name })); }, [user.name]);
   useEffect(() => {
-    const refreshOrganization = () => setOrganization(getOrganizationProfile());
+    const refreshOrganization = () => {
+      void getCloudOrganizationProfile().then(profile => {
+        if (profile) setOrganization(profile);
+      });
+    };
+    refreshOrganization();
     window.addEventListener('organization-profile-updated', refreshOrganization);
     window.addEventListener('storage', refreshOrganization);
     return () => {
@@ -351,9 +358,26 @@ function ReportPreview({ report, organization }: { report: SituationalReport; or
 function SettingsPage() {
   const health = useHealthCheck({ query: { queryKey: ['health-settings'] as const } });
   const [saved, setSaved] = useState(false);
-  const [form, setForm] = useState<OrganizationProfile>(getOrganizationProfile);
-  const save = (event: FormEvent) => { event.preventDefault(); window.localStorage.setItem(organizationProfileKey, JSON.stringify(form)); window.dispatchEvent(new Event('organization-profile-updated')); setSaved(true); window.setTimeout(() => setSaved(false), 2600); };
-  return <div className="content"><div className="page-head"><div><div className="eyebrow">Workspace configuration</div><h1 className="page-title">Settings</h1><div className="page-desc">Keep the organization identity and duty officer details used in official reports up to date.</div></div></div><div className="two-col"><section className="panel"><div className="panel-header"><div><div className="panel-title">Organization profile</div><div className="panel-meta">Shown on generated reports</div></div><Building2 size={17} color="#347d74" /></div><form className="panel-body" onSubmit={save}><div className="form-grid"><Field label="Municipality" full><input value={form.municipality} onChange={e => setForm({...form, municipality:e.target.value})} data-testid="input-settings-municipality" /></Field><Field label="Operations desk" full><input value={form.desk} onChange={e => setForm({...form, desk:e.target.value})} data-testid="input-settings-desk" /></Field><Field label="Duty officer"><input value={form.officer} onChange={e => setForm({...form, officer:e.target.value})} data-testid="input-settings-officer" /></Field><Field label="Contact email"><input type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} data-testid="input-settings-email" /></Field><Field label="Timezone"><select value={form.timezone} onChange={e => setForm({...form, timezone:e.target.value})} data-testid="select-settings-timezone"><option>Asia/Manila</option><option>UTC</option></select></Field></div><button className="btn btn-primary" style={{ marginTop:22 }} data-testid="button-save-settings"><Check size={14} /> Save workspace settings</button>{saved && <div style={{ color:'#2d7a6e', fontSize:11, marginTop:12 }} data-testid="status-settings-saved">Settings saved for this session.</div>}</form></section><section className="panel"><div className="panel-header"><div><div className="panel-title">System status</div><div className="panel-meta">Service availability</div></div><Shield size={17} color="#c08b2e" /></div><div className="panel-body"><div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:16, borderBottom:'1px solid #e9e4d9' }}><div><div className="incident-name">Disaster information API</div><div className="incident-location">Live data connection</div></div><StatusTag value={health.isSuccess ? 'Operational' : health.isLoading ? 'Checking' : 'Unavailable'} /></div><div style={{ paddingTop:18, color:'#72817b', fontSize:12, lineHeight:1.7 }}>This workspace uses a shared operational record. Changes made by another desk are reflected on the next live synchronization cycle.</div><div style={{ marginTop:22, background:'#edf3ee', padding:14, borderRadius:7, display:'flex', gap:10, alignItems:'flex-start' }}><Users size={15} color="#377f74" /><div><div style={{ fontSize:12, fontWeight:800, color:'#365953' }}>Shift handover ready</div><div style={{ fontSize:11, color:'#71817b', marginTop:3 }}>Your current officer profile is attached to report generation.</div></div></div></div></section></div></div>;
+  const [form, setForm] = useState<OrganizationProfile>(getLocalOrganizationProfile);
+  const [saveError, setSaveError] = useState('');
+  useEffect(() => {
+    void getCloudOrganizationProfile().then(profile => {
+      if (profile) setForm(profile);
+    });
+  }, []);
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    setSaveError('');
+    void saveOrganizationProfile(form).then(() => {
+      window.localStorage.setItem(organizationProfileKey, JSON.stringify(form));
+      window.dispatchEvent(new Event('organization-profile-updated'));
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2600);
+    }).catch(error => {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save organization profile.');
+    });
+  };
+  return <div className="content"><div className="page-head"><div><div className="eyebrow">Workspace configuration</div><h1 className="page-title">Settings</h1><div className="page-desc">Keep the organization identity and duty officer details used in official reports up to date.</div></div></div><div className="two-col"><section className="panel"><div className="panel-header"><div><div className="panel-title">Organization profile</div><div className="panel-meta">Shared across authenticated users</div></div><Building2 size={17} color="#347d74" /></div><form className="panel-body" onSubmit={save}><div className="form-grid"><Field label="Municipality" full><input value={form.municipality} onChange={e => setForm({...form, municipality:e.target.value})} data-testid="input-settings-municipality" /></Field><Field label="Operations desk" full><input value={form.desk} onChange={e => setForm({...form, desk:e.target.value})} data-testid="input-settings-desk" /></Field><Field label="Duty officer"><input value={form.officer} onChange={e => setForm({...form, officer:e.target.value})} data-testid="input-settings-officer" /></Field><Field label="Contact email"><input type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} data-testid="input-settings-email" /></Field><Field label="Timezone"><select value={form.timezone} onChange={e => setForm({...form, timezone:e.target.value})} data-testid="select-settings-timezone"><option>Asia/Manila</option><option>UTC</option></select></Field></div><button className="btn btn-primary" style={{ marginTop:22 }} data-testid="button-save-settings"><Check size={14} /> Save workspace settings</button>{saved && <div style={{ color:'#2d7a6e', fontSize:11, marginTop:12 }} data-testid="status-settings-saved">Saved for all authenticated users.</div>}{saveError && <div className="error-state" style={{ marginTop:12 }}>{saveError}</div>}</form></section><section className="panel"><div className="panel-header"><div><div className="panel-title">System status</div><div className="panel-meta">Service availability</div></div><Shield size={17} color="#c08b2e" /></div><div className="panel-body"><div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:16, borderBottom:'1px solid #e9e4d9' }}><div><div className="incident-name">Disaster information API</div><div className="incident-location">Live data connection</div></div><StatusTag value={health.isSuccess ? 'Operational' : health.isLoading ? 'Checking' : 'Unavailable'} /></div><div style={{ paddingTop:18, color:'#72817b', fontSize:12, lineHeight:1.7 }}>This workspace uses a shared operational record. Changes made by another desk are reflected on the next live synchronization cycle.</div><div style={{ marginTop:22, background:'#edf3ee', padding:14, borderRadius:7, display:'flex', gap:10, alignItems:'flex-start' }}><Users size={15} color="#377f74" /><div><div style={{ fontSize:12, fontWeight:800, color:'#365953' }}>Shift handover ready</div><div style={{ fontSize:11, color:'#71817b', marginTop:3 }}>Your current officer profile is attached to report generation.</div></div></div></div></section></div></div>;
 }
 
 function UsersPage({ user }: { user: LocalUser }) {

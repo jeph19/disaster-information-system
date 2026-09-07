@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   setDoc,
   Timestamp,
@@ -68,12 +69,14 @@ export interface SituationalReport {
 }
 export type UserRole = 'Administrator' | 'Coordinator' | 'Viewer';
 export interface FirestoreUser { id: string; name: string; email: string; role: UserRole; status: 'Active' | 'Disabled'; createdAt: string; }
+export interface OrganizationProfile { municipality: string; desk: string; officer: string; email: string; timezone: string; }
 
 const names = {
   incidents: 'disaster_incidents',
   centers: 'disaster_evacuation_centers',
   damages: 'disaster_structure_damages',
   users: 'disaster_users',
+  settings: 'disaster_settings',
 } as const;
 
 const asIso = (value: unknown): string => {
@@ -211,6 +214,13 @@ export async function listUsers(): Promise<FirestoreUser[]> {
 }
 export async function getUser(id: string): Promise<FirestoreUser | undefined> {
   return (await listUsers()).find(user => user.id === id);
+}
+export async function getOrganizationProfile(): Promise<OrganizationProfile | undefined> {
+  const snapshot = await getDoc(doc(firestore, names.settings, 'organization'));
+  return snapshot.exists() ? snapshot.data() as OrganizationProfile : undefined;
+}
+export async function saveOrganizationProfile(profile: OrganizationProfile): Promise<void> {
+  await setDoc(doc(firestore, names.settings, 'organization'), profile);
 }
 
 const key = (name: string, value?: unknown) => [name, value] as const;

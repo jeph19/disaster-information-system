@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/disaster_users/$(request.auth.uid)).data;
+    }
+
+    function isAdministrator() {
+      return signedIn() && userProfile().role == 'Administrator';
+    }
+
+    function canOperate() {
+      return signedIn() &&
+        (userProfile().role == 'Administrator' || userProfile().role == 'Coordinator');
+    }
+
+    match /disaster_users/{userId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == userId
+        && request.resource.data.role in ['Administrator', 'Viewer'];
+      allow update: if isAdministrator()
+        || (signedIn() && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['name', 'email', 'status']));
+      allow delete: if isAdministrator();
+    }
+
+    match /disaster_incidents/{document} {
+      allow read: if signedIn();
+      allow create, update, delete: if canOperate();
+    }
+
+    match /disaster_evacuation_centers/{document} {
+      allow read: if signedIn();
+      allow create, update, delete: if canOperate();
+    }
+
+    match /disaster_structure_damages/{document} {
+      allow read: if signedIn();
+      allow create, update, delete: if canOperate();
+    }
+  }
+}

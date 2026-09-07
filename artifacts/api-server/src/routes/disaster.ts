@@ -1,6 +1,4 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq } from "drizzle-orm";
-import { db, evacuationCentersTable, incidentsTable, structureDamagesTable } from "@workspace/db";
 import {
   CreateEvacuationCenterBody,
   CreateEvacuationCenterResponse,
@@ -35,17 +33,25 @@ import {
   UpdateStructureDamageResponse,
 } from "@workspace/api-zod";
 import {
-  buildIncidentSearch,
+  createEvacuationCenter,
+  createIncident,
+  createStructureDamage,
   dashboardSummary,
+  deleteEvacuationCenter,
+  deleteIncident,
+  deleteStructureDamage,
   ensureSeedData,
   getCentersForIncident,
   getDamagesForIncident,
   getIncidentById,
   incidentOverview,
-  parseId,
-  touchIncident,
+  listEvacuationCenters,
+  listIncidents,
+  listStructureDamages,
+  updateEvacuationCenter,
+  updateIncident,
+  updateStructureDamage,
 } from "../lib/disaster";
-import { requireEditor } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -56,31 +62,17 @@ router.get("/incidents", async (req, res): Promise<void> => {
     res.status(400).json({ error: query.error.message });
     return;
   }
-  const conditions = [];
-  if (query.data.status) conditions.push(eq(incidentsTable.status, query.data.status));
-  const search = buildIncidentSearch(query.data.search);
-  if (search) conditions.push(search);
-  const incidents = await db
-    .select()
-    .from(incidentsTable)
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(incidentsTable.updatedAt));
+  const incidents = await listIncidents(query.data.status, query.data.search);
   res.json(ListIncidentsResponse.parse(incidents));
 });
 
-router.post("/incidents", requireEditor, async (req, res): Promise<void> => {
+router.post("/incidents", async (req, res): Promise<void> => {
   const parsed = CreateIncidentBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [incident] = await db
-    .insert(incidentsTable)
-    .values({
-      ...parsed.data,
-      code: `INC-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`,
-    })
-    .returning();
+  const incident = await createIncident(parsed.data);
   res.status(201).json(CreateIncidentResponse.parse(incident));
 });
 
@@ -98,7 +90,7 @@ router.get("/incidents/:id", async (req, res): Promise<void> => {
   res.json(GetIncidentResponse.parse(incident));
 });
 
-router.patch("/incidents/:id", requireEditor, async (req, res): Promise<void> => {
+router.patch("/incidents/:id", async (req, res): Promise<void> => {
   const params = UpdateIncidentParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -109,11 +101,7 @@ router.patch("/incidents/:id", requireEditor, async (req, res): Promise<void> =>
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [incident] = await db
-    .update(incidentsTable)
-    .set({ ...parsed.data, updatedAt: new Date() })
-    .where(eq(incidentsTable.id, params.data.id))
-    .returning();
+  const incident = await updateIncident(params.data.id, parsed.data);
   if (!incident) {
     res.status(404).json({ error: "Incident not found" });
     return;
@@ -121,17 +109,13 @@ router.patch("/incidents/:id", requireEditor, async (req, res): Promise<void> =>
   res.json(UpdateIncidentResponse.parse(incident));
 });
 
-router.delete("/incidents/:id", requireEditor, async (req, res): Promise<void> => {
+router.delete("/incidents/:id", async (req, res): Promise<void> => {
   const params = DeleteIncidentParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [incident] = await db
-    .delete(incidentsTable)
-    .where(eq(incidentsTable.id, params.data.id))
-    .returning();
-  if (!incident) {
+  if (!(await deleteIncident(params.data.id))) {
     res.status(404).json({ error: "Incident not found" });
     return;
   }
@@ -159,29 +143,24 @@ router.get("/evacuation-centers", async (req, res): Promise<void> => {
     res.status(400).json({ error: query.error.message });
     return;
   }
-  const conditions = [];
-  if (query.data.incidentId) conditions.push(eq(evacuationCentersTable.incidentId, query.data.incidentId));
-  if (query.data.search) conditions.push(eq(evacuationCentersTable.barangay, query.data.search));
-  const centers = await db
-    .select()
-    .from(evacuationCentersTable)
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(evacuationCentersTable.currentPopulation));
+  const centers = await listEvacuationCenters(
+    query.data.incidentId,
+    query.data.search,
+  );
   res.json(ListEvacuationCentersResponse.parse(centers));
 });
 
-router.post("/evacuation-centers", requireEditor, async (req, res): Promise<void> => {
+router.post("/evacuation-centers", async (req, res): Promise<void> => {
   const parsed = CreateEvacuationCenterBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [center] = await db.insert(evacuationCentersTable).values(parsed.data).returning();
-  await touchIncident(parsed.data.incidentId);
+  const center = await createEvacuationCenter(parsed.data);
   res.status(201).json(CreateEvacuationCenterResponse.parse(center));
 });
 
-router.patch("/evacuation-centers/:id", requireEditor, async (req, res): Promise<void> => {
+router.patch("/evacuation-centers/:id", async (req, res): Promise<void> => {
   const params = UpdateEvacuationCenterParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -192,34 +171,25 @@ router.patch("/evacuation-centers/:id", requireEditor, async (req, res): Promise
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [center] = await db
-    .update(evacuationCentersTable)
-    .set({ ...parsed.data, updatedAt: new Date() })
-    .where(eq(evacuationCentersTable.id, params.data.id))
-    .returning();
+  const center = await updateEvacuationCenter(params.data.id, parsed.data);
   if (!center) {
     res.status(404).json({ error: "Evacuation center not found" });
     return;
   }
-  await touchIncident(center.incidentId);
   res.json(UpdateEvacuationCenterResponse.parse(center));
 });
 
-router.delete("/evacuation-centers/:id", requireEditor, async (req, res): Promise<void> => {
+router.delete("/evacuation-centers/:id", async (req, res): Promise<void> => {
   const params = DeleteEvacuationCenterParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [center] = await db
-    .delete(evacuationCentersTable)
-    .where(eq(evacuationCentersTable.id, params.data.id))
-    .returning();
+  const center = await deleteEvacuationCenter(params.data.id);
   if (!center) {
     res.status(404).json({ error: "Evacuation center not found" });
     return;
   }
-  await touchIncident(center.incidentId);
   res.sendStatus(204);
 });
 
@@ -230,26 +200,21 @@ router.get("/structure-damages", async (req, res): Promise<void> => {
     res.status(400).json({ error: query.error.message });
     return;
   }
-  const damages = await db
-    .select()
-    .from(structureDamagesTable)
-    .where(query.data.incidentId ? eq(structureDamagesTable.incidentId, query.data.incidentId) : undefined)
-    .orderBy(desc(structureDamagesTable.totallyDamaged));
+  const damages = await listStructureDamages(query.data.incidentId);
   res.json(ListStructureDamagesResponse.parse(damages));
 });
 
-router.post("/structure-damages", requireEditor, async (req, res): Promise<void> => {
+router.post("/structure-damages", async (req, res): Promise<void> => {
   const parsed = CreateStructureDamageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [damage] = await db.insert(structureDamagesTable).values(parsed.data).returning();
-  await touchIncident(parsed.data.incidentId);
+  const damage = await createStructureDamage(parsed.data);
   res.status(201).json(CreateStructureDamageResponse.parse(damage));
 });
 
-router.patch("/structure-damages/:id", requireEditor, async (req, res): Promise<void> => {
+router.patch("/structure-damages/:id", async (req, res): Promise<void> => {
   const params = UpdateStructureDamageParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -260,34 +225,25 @@ router.patch("/structure-damages/:id", requireEditor, async (req, res): Promise<
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [damage] = await db
-    .update(structureDamagesTable)
-    .set({ ...parsed.data, updatedAt: new Date() })
-    .where(eq(structureDamagesTable.id, params.data.id))
-    .returning();
+  const damage = await updateStructureDamage(params.data.id, parsed.data);
   if (!damage) {
     res.status(404).json({ error: "Damage assessment not found" });
     return;
   }
-  await touchIncident(damage.incidentId);
   res.json(UpdateStructureDamageResponse.parse(damage));
 });
 
-router.delete("/structure-damages/:id", requireEditor, async (req, res): Promise<void> => {
+router.delete("/structure-damages/:id", async (req, res): Promise<void> => {
   const params = DeleteStructureDamageParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [damage] = await db
-    .delete(structureDamagesTable)
-    .where(eq(structureDamagesTable.id, params.data.id))
-    .returning();
+  const damage = await deleteStructureDamage(params.data.id);
   if (!damage) {
     res.status(404).json({ error: "Damage assessment not found" });
     return;
   }
-  await touchIncident(damage.incidentId);
   res.sendStatus(204);
 });
 

@@ -8,15 +8,15 @@ Sentinel is a municipal emergency operations workspace for recording incidents, 
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `FIREBASE_PROJECT_ID=sentinel-9fdc4`
+- Required env: `GOOGLE_APPLICATION_CREDENTIALS` — path to an application-default-credentials JSON file (do not commit or expose the file)
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
+- DB: Firebase Cloud Firestore via `firebase-admin`
+- Validation: Zod (`zod/v4`)
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
 
@@ -25,7 +25,7 @@ Sentinel is a municipal emergency operations workspace for recording incidents, 
 - `artifacts/disaster-information-system/src/` — React command overview, incident register, incident detail, report generator, settings, and theme.
 - `artifacts/api-server/src/routes/disaster.ts` — incident, evacuation center, damage, dashboard, and situational report endpoints.
 - `artifacts/api-server/src/lib/disaster.ts` — seeded starter records and operational aggregation helpers.
-- `lib/db/src/schema/disaster.ts` — PostgreSQL schema for incidents, evacuation centers, and structure damage.
+- Firestore collections `disaster_incidents`, `disaster_evacuation_centers`, and `disaster_structure_damages` store disaster records; numeric IDs are persisted in each document.
 - `lib/api-spec/openapi.yaml` — source-of-truth API contract used to generate typed hooks and validation.
 
 ## Architecture decisions

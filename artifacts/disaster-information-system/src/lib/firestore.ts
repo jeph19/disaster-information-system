@@ -31,15 +31,18 @@ export interface IncidentInput {
   startedAt: string; summary: string; affectedPopulation?: number; evacuatedPopulation?: number;
   deaths?: number; injuries?: number; missing?: number;
 }
+export interface AgeSexCount { male: number; female: number; }
+export type AgeSexBreakdown = Record<string, AgeSexCount>;
+export type SectorBreakdown = Record<string, AgeSexCount>;
 export interface EvacuationCenter {
   id: number; incidentId: number; name: string; barangay: string; address: string; capacity: number;
   currentPopulation: number; families: number; men: number; women: number; children: number; seniors: number;
-  pwd: number; status: EvacuationCenterStatus; contactPerson: string; contactNumber: string; updatedAt: string;
+  pwd: number; ageSex?: AgeSexBreakdown; sectors?: SectorBreakdown; status: EvacuationCenterStatus; contactPerson: string; contactNumber: string; updatedAt: string;
 }
 export interface EvacuationCenterInput {
   incidentId: number; name: string; barangay: string; address: string; capacity: number; currentPopulation: number;
   families: number; men: number; women: number; children: number; seniors: number; pwd: number;
-  status: EvacuationCenterStatus; contactPerson: string; contactNumber: string;
+  ageSex: AgeSexBreakdown; sectors: SectorBreakdown; status: EvacuationCenterStatus; contactPerson: string; contactNumber: string;
 }
 export interface StructureDamage {
   id: number; incidentId: number; structureType: StructureType; location: string; partiallyDamaged: number;

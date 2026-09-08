@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   BarChart3,
+  BookOpen,
   Building2,
   Check,
   ChevronRight,
@@ -110,6 +111,16 @@ const sectorGroups = [
 const emptyBreakdown = (groups: readonly (readonly [string, string])[]) =>
   Object.fromEntries(groups.map(([key]) => [key, { male: 0, female: 0 }]));
 
+const userGuideFeatures = [
+  { title: 'Command overview', route: '/', summary: 'Monitor active incidents, affected individuals, evacuation totals, families, and structure impacts from one operational dashboard.', steps: ['Review the summary cards for the current operational picture.', 'Open an incident from the active register for detailed status and response data.'] },
+  { title: 'Incident register', route: '/incidents', summary: 'Register, search, update, and review disaster incidents.', steps: ['Select Register incident to add a record.', 'Use the edit and delete controls to maintain incident information.', 'Open an incident to manage its evacuation centers and damage assessments.'] },
+  { title: 'Evacuation centers', route: '/incidents/:id', summary: 'Track every evacuation center, total evacuees, families, capacity, utilization, and status.', steps: ['Open an incident and select Add center.', 'Enter the center totals and the age/sex counter-check.', 'Enter overlapping sector classifications such as PWD, 4Ps, solo parents, pregnant, and lactating.'] },
+  { title: 'Age and sex counter-check', route: '/incidents/:id', summary: 'Record male and female counts for seven age groups and compare the result with the total evacuees.', steps: ['Enter counts from 0–6 months through 60 years and above.', 'Confirm the counter-check total matches Total evacuees before saving.'] },
+  { title: 'Situation reports', route: '/reports', summary: 'Generate and print a situation report using the current incident, evacuation, damage, organization, and logged-in duty officer data.', steps: ['Choose an incident and complete the operational narrative.', 'Generate the report to display the age/sex breakdown and impact snapshot.', 'Use Print report for an official paper or PDF copy.'] },
+  { title: 'User management', route: '/users', summary: 'Administrators assign Administrator, Coordinator, or Viewer roles to registered users.', steps: ['Open User management as an Administrator.', 'Change a user’s role from the Role selector.'] },
+  { title: 'Organization profile', route: '/settings', summary: 'Maintain the shared municipality, operations desk, duty officer, email, and timezone information used in reports.', steps: ['Edit the profile fields and select Save workspace settings.', 'The profile is stored in Firebase for authenticated users.'] },
+] as const;
+
 type OrganizationProfile = {
   municipality: string;
   desk: string;
@@ -178,6 +189,7 @@ function Shell({ children, user, onSignOut }: { children: ReactNode; user: Local
     { href: '/incidents', label: 'Incident register', icon: Radio },
     { href: '/reports', label: 'Situation reports', icon: FileText },
     { href: '/users', label: 'User management', icon: UserRoundCog },
+    { href: '/guide', label: 'User guide', icon: BookOpen },
   ];
   return <div className="app-shell">
     <aside className="sidebar">
@@ -423,9 +435,13 @@ function UsersPage({ user }: { user: LocalUser }) {
   </div>;
 }
 
+function UserGuidePage() {
+  return <div className="content"><div className="page-head"><div><div className="eyebrow">Help and onboarding</div><h1 className="page-title">User guide</h1><div className="page-desc">A living guide to the features currently available in Sentinel. This catalog is maintained alongside the application feature routes.</div></div><div className="access-note"><BookOpen size={14} /> {userGuideFeatures.length} features documented</div></div><div className="section-stack">{userGuideFeatures.map(feature => <section className="panel" key={feature.title}><div className="panel-header"><div><div className="panel-title">{feature.title}</div><div className="panel-meta">{feature.route}</div></div><BookOpen size={17} color="#347d74" /></div><div className="panel-body"><div style={{ color:'#526c66', fontSize:13, lineHeight:1.7 }}>{feature.summary}</div><div style={{ marginTop:16, display:'grid', gap:10 }}>{feature.steps.map((step, index) => <div key={step} style={{ display:'flex', gap:10, alignItems:'flex-start', color:'#6d7d77', fontSize:12, lineHeight:1.6 }}><span className="code">{index + 1}</span><span>{step}</span></div>)}</div></div></section>)}</div></div>;
+}
+
 function Router({ user, onSignOut }: { user: LocalUser; onSignOut: () => void }) {
   const [location] = useLocation();
-  return <ErrorBoundary resetKey={location}><Shell user={user} onSignOut={onSignOut}><Switch><Route path="/" component={Dashboard} /><Route path="/incidents" component={IncidentsPage} /><Route path="/incidents/:id" component={IncidentDetail} /><Route path="/reports">{() => <ReportsPage user={user} />}</Route><Route path="/users">{() => <UsersPage user={user} />}</Route><Route path="/settings" component={SettingsPage} /><Route component={NotFound} /></Switch></Shell></ErrorBoundary>;
+  return <ErrorBoundary resetKey={location}><Shell user={user} onSignOut={onSignOut}><Switch><Route path="/" component={Dashboard} /><Route path="/incidents" component={IncidentsPage} /><Route path="/incidents/:id" component={IncidentDetail} /><Route path="/reports">{() => <ReportsPage user={user} />}</Route><Route path="/users">{() => <UsersPage user={user} />}</Route><Route path="/guide" component={UserGuidePage} /><Route path="/settings" component={SettingsPage} /><Route component={NotFound} /></Switch></Shell></ErrorBoundary>;
 }
 
 function LocalAuth({ onAuthenticated }: { onAuthenticated: (user: LocalUser) => void }) {

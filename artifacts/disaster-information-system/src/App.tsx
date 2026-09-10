@@ -226,19 +226,39 @@ function Metric({ label, value, foot, tint }: { label: string; value: string | n
 
 function Dashboard() {
   const summaryQuery = useGetDashboardSummary({ query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 60000 } });
+  const incidentsQuery = useListIncidents(undefined, { query: { queryKey: getListIncidentsQueryKey(), refetchInterval: 60000 } });
+  const centersQuery = useListEvacuationCenters(undefined, { query: { queryKey: getListEvacuationCentersQueryKey(), refetchInterval: 60000 } });
+  const damagesQuery = useListStructureDamages(undefined, { query: { queryKey: getListStructureDamagesQueryKey(), refetchInterval: 60000 } });
   const health = useHealthCheck({ query: { queryKey: ['health'] as const, refetchInterval: 60000 } });
   const summary = summaryQuery.data;
-  const bars = summary?.populationByIncident?.map(item => item.population) ?? [34, 56, 41, 72, 48, 64, 52];
+  const bars = summary?.populationByIncident?.map(item => item.population) ?? [];
   return <div className="content">
     <div className="page-head"><div><div className="eyebrow">Live operational picture</div><h1 className="page-title">Command overview</h1><div className="page-desc">A clear read on people, places, and priorities across Noveleta. Last synchronized from field desks just now.</div></div><Link href="/incidents" className="btn btn-primary" data-testid="link-open-register"><Radio size={15} /> Open incident register</Link></div>
-    {summaryQuery.isLoading ? <><div className="metric-grid">{[1,2,3,4].map(x => <div className="panel metric-card skeleton" key={x} />)}</div><LoadingPanel /></> : summaryQuery.isError ? <ErrorPanel onRetry={() => summaryQuery.refetch()} /> : summary ? <DashboardData summary={summary} bars={bars} healthOk={health.data?.status === 'ok' || health.isSuccess} /> : <EmptyPanel title="No operational picture yet" copy="Once incidents are registered, the command overview will populate here." action={<Link href="/incidents" className="btn btn-primary" data-testid="link-create-first-incident"><Plus size={14} /> Register an incident</Link>} />}
+    {summaryQuery.isLoading || incidentsQuery.isLoading || centersQuery.isLoading || damagesQuery.isLoading ? <><div className="metric-grid">{[1,2,3,4].map(x => <div className="panel metric-card skeleton" key={x} />)}</div><LoadingPanel /></> : summaryQuery.isError || incidentsQuery.isError || centersQuery.isError || damagesQuery.isError ? <ErrorPanel onRetry={() => { void summaryQuery.refetch(); void incidentsQuery.refetch(); void centersQuery.refetch(); void damagesQuery.refetch(); }} /> : summary ? <DashboardData summary={summary} bars={bars} incidents={incidentsQuery.data ?? []} centers={centersQuery.data ?? []} damages={damagesQuery.data ?? []} healthOk={health.data?.status === 'ok' || health.isSuccess} /> : <EmptyPanel title="No operational picture yet" copy="Once incidents are registered, the command overview will populate here." action={<Link href="/incidents" className="btn btn-primary" data-testid="link-create-first-incident"><Plus size={14} /> Register an incident</Link>} />}
   </div>;
 }
 
-function DashboardData({ summary, bars, healthOk }: { summary: DashboardSummary; bars: number[]; healthOk: boolean }) {
+function DashboardData({ summary, bars, incidents, centers, damages, healthOk }: { summary: DashboardSummary; bars: number[]; incidents: Incident[]; centers: EvacuationCenter[]; damages: StructureDamage[]; healthOk: boolean }) {
   const max = Math.max(...bars, 1);
   const recentIncidents = summary.recentIncidents ?? [];
   const populationByIncident = summary.populationByIncident ?? [];
+  const outcomeTotals = [
+    { label: 'Deaths', value: incidents.reduce((sum, item) => sum + item.deaths, 0), color: '#b84e43' },
+    { label: 'Injuries', value: incidents.reduce((sum, item) => sum + item.injuries, 0), color: '#c28b2b' },
+    { label: 'Missing', value: incidents.reduce((sum, item) => sum + item.missing, 0), color: '#557d9c' },
+  ];
+  const ageTotals = ageGroups.map(([key, label]) => ({
+    label,
+    male: centers.reduce((sum, center) => sum + (center.ageSex?.[key]?.male ?? 0), 0),
+    female: centers.reduce((sum, center) => sum + (center.ageSex?.[key]?.female ?? 0), 0),
+  }));
+  const demographicMax = Math.max(...ageTotals.map(item => item.male + item.female), 1);
+  const damageTotals = [
+    { label: 'Partially damaged', value: damages.reduce((sum, item) => sum + item.partiallyDamaged, 0), color: '#c28b2b' },
+    { label: 'Totally damaged', value: damages.reduce((sum, item) => sum + item.totallyDamaged, 0), color: '#b84e43' },
+  ];
+  const outcomeMax = Math.max(...outcomeTotals.map(item => item.value), 1);
+  const damageMax = Math.max(...damageTotals.map(item => item.value), 1);
   return <><div className="metric-grid">
     <Metric label="Active incidents" value={summary.activeIncidents ?? 0} foot={`${summary.totalIncidents ?? 0} total in register`} tint="#f5e3c3" />
     <Metric label="Individuals evacuated" value={summary.totalEvacuated ?? 0} foot={`of ${number(summary.totalCapacity)} available capacity`} tint="#d6e8e0" />
@@ -247,7 +267,10 @@ function DashboardData({ summary, bars, healthOk }: { summary: DashboardSummary;
   </div><div className="dashboard-grid">
     <section className="panel"><div className="panel-header"><div><div className="panel-title">Active incident register</div><div className="panel-meta">{summary.activeIncidents ?? 0} requiring coordination</div></div><Link href="/incidents" className="icon-btn" data-testid="link-dashboard-incidents"><ChevronRight size={16} /></Link></div>{recentIncidents.length ? recentIncidents.slice(0, 5).map(incident => <IncidentRow key={incident.id} incident={incident} />) : <EmptyPanel title="No recent incidents" copy="The desk is clear. New incidents will appear here as they are registered." />}</section>
     <section className="panel panel-body"><div className="chart-note"><div><div className="panel-title">Human impact by incident</div><div className="chart-sub">Affected individuals · current register</div></div><BarChart3 size={18} color="#367c74" /></div><div className="chart-value">{number(populationByIncident.reduce((sum, item) => sum + item.population, 0))}<span className="chart-sub"> individuals</span></div><div className="sparkline" data-testid="chart-population">{bars.map((bar, i) => <div className="spark-bar" key={i} style={{ height: `${Math.max(10, (bar / max) * 100)}%` }} title={populationByIncident[i]?.label ?? 'Incident'} />)}</div><div className="flex justify-between" style={{ color: '#8a9791', fontSize: 10, marginTop: 9 }}><span>Older</span><span>Most recent</span></div><div style={{ borderTop: '1px solid #e9e4d9', marginTop: 22, paddingTop: 17, display:'flex', gap:9, alignItems:'center' }}><Shield size={15} color="#c28b2b" /><span style={{ fontSize: 11, color:'#687775' }}>{healthOk ? 'All systems operational' : 'Checking service health'}</span></div></section>
-  </div></>;
+  </div><div className="dashboard-grid" style={{ marginTop: 18 }}>
+    <section className="panel panel-body"><div className="chart-note"><div><div className="panel-title">Incident outcomes</div><div className="chart-sub">Deaths, injuries, and missing persons</div></div><BarChart3 size={18} color="#367c74" /></div><div style={{ display:'grid', gap:14, marginTop:20 }}>{outcomeTotals.map(item => <div key={item.label}><div className="flex justify-between" style={{ fontSize:11, color:'#657872', marginBottom:6 }}><span>{item.label}</span><strong>{number(item.value)}</strong></div><div style={{ height:10, background:'#e9e4d9', borderRadius:5 }}><div style={{ width:`${Math.max(item.value ? 5 : 0, item.value / outcomeMax * 100)}%`, height:'100%', background:item.color, borderRadius:5 }} /></div></div>)}</div></section>
+    <section className="panel panel-body"><div className="chart-note"><div><div className="panel-title">Structural damage</div><div className="chart-sub">Current assessment records</div></div><BarChart3 size={18} color="#367c74" /></div><div style={{ display:'grid', gap:14, marginTop:20 }}>{damageTotals.map(item => <div key={item.label}><div className="flex justify-between" style={{ fontSize:11, color:'#657872', marginBottom:6 }}><span>{item.label}</span><strong>{number(item.value)}</strong></div><div style={{ height:10, background:'#e9e4d9', borderRadius:5 }}><div style={{ width:`${Math.max(item.value ? 5 : 0, item.value / damageMax * 100)}%`, height:'100%', background:item.color, borderRadius:5 }} /></div></div>)}</div></section>
+  </div><section className="panel panel-body" style={{ marginTop: 18 }}><div className="chart-note"><div><div className="panel-title">Evacuated individuals by age and sex</div><div className="chart-sub">Live counter-check across all evacuation centers</div></div><Users size={18} color="#367c74" /></div><div style={{ display:'grid', gap:12, marginTop:20 }}>{ageTotals.map(item => <div key={item.label}><div className="flex justify-between" style={{ fontSize:11, color:'#657872', marginBottom:5 }}><span>{item.label}</span><strong>{number(item.male + item.female)}</strong></div><div style={{ display:'flex', height:12, background:'#e9e4d9', borderRadius:6, overflow:'hidden' }}><div style={{ width:`${item.male / demographicMax * 100}%`, background:'#367c74' }} /><div style={{ width:`${item.female / demographicMax * 100}%`, background:'#c28b82' }} /></div><div style={{ display:'flex', gap:12, fontSize:10, color:'#80908a', marginTop:4 }}><span>Male {number(item.male)}</span><span>Female {number(item.female)}</span></div></div>)}</div></section></>;
 }
 
 function IncidentRow({ incident }: { incident: Incident }) {

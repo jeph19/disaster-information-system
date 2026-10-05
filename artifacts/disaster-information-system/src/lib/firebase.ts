@@ -1,6 +1,7 @@
 import { getApp, getApps, initializeApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 /**
  * Firebase web configuration is intentionally public. The optional Vite values
@@ -20,3 +21,4 @@ export const firebaseConfig: FirebaseOptions = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const firestore = getFirestore(app);
 export const firebaseAuth = getAuth(app);
+export const firebaseStorage = getStorage(app);

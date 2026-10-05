@@ -1,14 +1,18 @@
 import { useMutation, useQuery, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 import {
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
+  query as firestoreQuery,
   setDoc,
+  serverTimestamp,
   Timestamp,
+  where,
+  writeBatch,
 } from 'firebase/firestore';
-import { firestore } from './firebase';
+import { firebaseAuth, firebaseStorage, firestore } from './firebase';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
 export type IncidentStatus = 'Active' | 'Monitoring' | 'Closed';
 export const IncidentStatus = { Active: 'Active', Monitoring: 'Monitoring', Closed: 'Closed' } as const;
@@ -67,12 +71,14 @@ export interface SituationalReportInput {
 }
 export interface SituationalReport {
   reportNumber: string; generatedAt: string; reportDate: string; preparedBy: string; incident: Incident;
-  centers: EvacuationCenter[]; damages: StructureDamage[]; operationalSummary: string; priorityNeeds: string;
+  centers: EvacuationCenter[]; damages: StructureDamage[]; photos: IncidentPhoto[]; operationalSummary: string; priorityNeeds: string;
   actionsTaken: string; nextSteps: string;
 }
 export type UserRole = 'Administrator' | 'Coordinator' | 'Viewer';
 export interface FirestoreUser { id: string; name: string; email: string; role: UserRole; status: 'Active' | 'Disabled'; createdAt: string; }
 export interface OrganizationProfile { municipality: string; desk: string; officer: string; email: string; timezone: string; }
+export interface AuditLog { id: string; recordType: string; recordId: string; incidentId?: number; action: 'created' | 'updated' | 'deleted'; changedAt: string; changedBy: string; changedByName: string; before?: unknown; after?: unknown; }
+export interface IncidentPhoto { id: string; incidentId: number; name: string; url: string; storagePath: string; uploadedAt: string; uploadedBy: string; uploadedByName: string; }
 
 const names = {
   incidents: 'disaster_incidents',
@@ -92,12 +98,22 @@ const asIso = (value: unknown): string => {
 
 const serialize = (value: unknown): unknown => value instanceof Date ? Timestamp.fromDate(value) : value;
 const dateValue = (value: string | Date) => value instanceof Date ? value : new Date(value);
+const actor = () => ({ changedBy: firebaseAuth.currentUser?.uid ?? 'unknown', changedByName: firebaseAuth.currentUser?.displayName || firebaseAuth.currentUser?.email || 'Unknown user' });
+const writeAudit = (batch: ReturnType<typeof writeBatch>, recordType: string, recordId: number | string, action: AuditLog['action'], incidentId: number, before?: unknown, after?: unknown) => {
+  const current = actor();
+  const auditRef = doc(collection(firestore, 'disaster_audit_logs'));
+  batch.set(auditRef, {
+    id: auditRef.id, recordType, recordId: String(recordId), incidentId, action, changedAt: serverTimestamp(), ...current,
+    ...(before === undefined ? {} : { before }),
+    ...(after === undefined ? {} : { after }),
+  });
+};
 
 async function records<T>(name: string): Promise<T[]> {
   const snapshot = await getDocs(collection(firestore, name));
   return snapshot.docs.map(item => {
     const data = item.data() as Record<string, unknown>;
-    for (const field of ['startedAt', 'updatedAt', 'createdAt', 'generatedAt', 'reportDate']) {
+    for (const field of ['startedAt', 'updatedAt', 'createdAt', 'generatedAt', 'reportDate', 'changedAt', 'uploadedAt']) {
       if (field in data) data[field] = asIso(data[field]);
     }
     return data as T;
@@ -161,17 +177,34 @@ export async function createIncident(input: IncidentInput): Promise<Incident> {
   await ensureSeedData();
   const id = await nextId(names.incidents); const now = new Date();
   const item: Incident = { id, code: `INC-${now.getFullYear()}-${String(id).padStart(3, '0')}`, ...input, startedAt: input.startedAt, updatedAt: now.toISOString(), affectedPopulation: input.affectedPopulation ?? 0, evacuatedPopulation: input.evacuatedPopulation ?? 0, deaths: input.deaths ?? 0, injuries: input.injuries ?? 0, missing: input.missing ?? 0, partiallyDamaged: 0, totallyDamaged: 0 };
-  await putRecord(names.incidents, id, { ...item, startedAt: dateValue(item.startedAt), updatedAt: now }); return item;
+  const batch = writeBatch(firestore);
+  batch.set(doc(firestore, names.incidents, String(id)), { ...item, startedAt: dateValue(item.startedAt), updatedAt: now });
+  writeAudit(batch, 'incident', id, 'created', id, undefined, item);
+  await batch.commit(); return item;
 }
 export async function updateIncident(id: number, input: IncidentInput): Promise<Incident | undefined> {
   const previous = await getIncident(id); if (!previous) return undefined;
   const item = { ...previous, ...input, id, updatedAt: new Date().toISOString() };
-  await putRecord(names.incidents, id, { ...item, startedAt: dateValue(item.startedAt), updatedAt: dateValue(item.updatedAt) }); return item;
+  const batch = writeBatch(firestore);
+  batch.set(doc(firestore, names.incidents, String(id)), { ...item, startedAt: dateValue(item.startedAt), updatedAt: dateValue(item.updatedAt) });
+  writeAudit(batch, 'incident', id, 'updated', id, previous, item);
+  await batch.commit(); return item;
 }
 export async function deleteIncident(id: number): Promise<boolean> {
   const previous = await getIncident(id); if (!previous) return false;
   const [centers, damages] = await Promise.all([records<EvacuationCenter>(names.centers), records<StructureDamage>(names.damages)]);
-  await Promise.all([...centers.filter(item => item.incidentId === id).map(item => deleteDoc(doc(firestore, names.centers, String(item.id)))), ...damages.filter(item => item.incidentId === id).map(item => deleteDoc(doc(firestore, names.damages, String(item.id)))), deleteDoc(doc(firestore, names.incidents, String(id)))]);
+  const batch = writeBatch(firestore);
+  centers.filter(item => item.incidentId === id).forEach(item => {
+    batch.delete(doc(firestore, names.centers, String(item.id)));
+    writeAudit(batch, 'evacuation_center', item.id, 'deleted', id, item);
+  });
+  damages.filter(item => item.incidentId === id).forEach(item => {
+    batch.delete(doc(firestore, names.damages, String(item.id)));
+    writeAudit(batch, 'structure_damage', item.id, 'deleted', id, item);
+  });
+  batch.delete(doc(firestore, names.incidents, String(id)));
+  writeAudit(batch, 'incident', id, 'deleted', id, previous);
+  await batch.commit();
   return true;
 }
 export async function listEvacuationCenters(params?: { incidentId?: number; search?: string }): Promise<EvacuationCenter[]> {
@@ -179,28 +212,93 @@ export async function listEvacuationCenters(params?: { incidentId?: number; sear
 }
 export async function createEvacuationCenter(input: EvacuationCenterInput): Promise<EvacuationCenter> {
   await ensureSeedData();
-  const item = { ...input, id: await nextId(names.centers), updatedAt: new Date().toISOString() }; await putRecord(names.centers, item.id, { ...item, updatedAt: new Date(item.updatedAt) }); return item;
+  const item = { ...input, id: await nextId(names.centers), updatedAt: new Date().toISOString() };
+  const batch = writeBatch(firestore);
+  batch.set(doc(firestore, names.centers, String(item.id)), { ...item, updatedAt: dateValue(item.updatedAt) });
+  writeAudit(batch, 'evacuation_center', item.id, 'created', item.incidentId, undefined, item);
+  await batch.commit(); return item;
 }
 export async function updateEvacuationCenter(id: number, input: EvacuationCenterInput): Promise<EvacuationCenter | undefined> {
   const previous = (await listEvacuationCenters()).find(item => item.id === id); if (!previous) return undefined;
-  const item = { ...previous, ...input, id, updatedAt: new Date().toISOString() }; await putRecord(names.centers, id, { ...item, updatedAt: new Date(item.updatedAt) }); return item;
+  const item = { ...previous, ...input, id, updatedAt: new Date().toISOString() };
+  const batch = writeBatch(firestore);
+  batch.set(doc(firestore, names.centers, String(id)), { ...item, updatedAt: dateValue(item.updatedAt) });
+  writeAudit(batch, 'evacuation_center', id, 'updated', item.incidentId, previous, item);
+  await batch.commit(); return item;
 }
 export async function deleteEvacuationCenter(id: number): Promise<EvacuationCenter | undefined> {
-  const item = (await listEvacuationCenters()).find(record => record.id === id); if (!item) return undefined; await deleteDoc(doc(firestore, names.centers, String(id))); return item;
+  const item = (await listEvacuationCenters()).find(record => record.id === id); if (!item) return undefined;
+  const batch = writeBatch(firestore);
+  batch.delete(doc(firestore, names.centers, String(id)));
+  writeAudit(batch, 'evacuation_center', id, 'deleted', item.incidentId, item);
+  await batch.commit(); return item;
 }
 export async function listStructureDamages(params?: { incidentId?: number }): Promise<StructureDamage[]> {
   await ensureSeedData(); return (await records<StructureDamage>(names.damages)).filter(item => params?.incidentId === undefined || item.incidentId === params.incidentId).sort((a, b) => b.totallyDamaged - a.totallyDamaged);
 }
 export async function createStructureDamage(input: StructureDamageInput): Promise<StructureDamage> {
   await ensureSeedData();
-  const item = { ...input, id: await nextId(names.damages), updatedAt: new Date().toISOString() }; await putRecord(names.damages, item.id, { ...item, updatedAt: new Date(item.updatedAt) }); return item;
+  const item = { ...input, id: await nextId(names.damages), updatedAt: new Date().toISOString() };
+  const batch = writeBatch(firestore);
+  batch.set(doc(firestore, names.damages, String(item.id)), { ...item, updatedAt: dateValue(item.updatedAt) });
+  writeAudit(batch, 'structure_damage', item.id, 'created', item.incidentId, undefined, item);
+  await batch.commit(); return item;
 }
 export async function updateStructureDamage(id: number, input: StructureDamageInput): Promise<StructureDamage | undefined> {
   const previous = (await listStructureDamages()).find(item => item.id === id); if (!previous) return undefined;
-  const item = { ...previous, ...input, id, updatedAt: new Date().toISOString() }; await putRecord(names.damages, id, { ...item, updatedAt: new Date(item.updatedAt) }); return item;
+  const item = { ...previous, ...input, id, updatedAt: new Date().toISOString() };
+  const batch = writeBatch(firestore);
+  batch.set(doc(firestore, names.damages, String(id)), { ...item, updatedAt: dateValue(item.updatedAt) });
+  writeAudit(batch, 'structure_damage', id, 'updated', item.incidentId, previous, item);
+  await batch.commit(); return item;
 }
 export async function deleteStructureDamage(id: number): Promise<StructureDamage | undefined> {
-  const item = (await listStructureDamages()).find(record => record.id === id); if (!item) return undefined; await deleteDoc(doc(firestore, names.damages, String(id))); return item;
+  const item = (await listStructureDamages()).find(record => record.id === id); if (!item) return undefined;
+  const batch = writeBatch(firestore);
+  batch.delete(doc(firestore, names.damages, String(id)));
+  writeAudit(batch, 'structure_damage', id, 'deleted', item.incidentId, item);
+  await batch.commit(); return item;
+}
+export async function listIncidentAuditLogs(incidentId: number): Promise<AuditLog[]> {
+  const snapshot = await getDocs(firestoreQuery(collection(firestore, 'disaster_audit_logs'), where('incidentId', '==', incidentId)));
+  return snapshot.docs.map(entry => {
+    const data = entry.data();
+    return { ...data, id: entry.id, changedAt: asIso(data.changedAt) } as AuditLog;
+  }).sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
+}
+export async function listIncidentPhotos(incidentId: number): Promise<IncidentPhoto[]> {
+  return (await records<IncidentPhoto>('disaster_incident_photos')).filter(photo => photo.incidentId === incidentId).sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+}
+export async function uploadIncidentPhoto(incidentId: number, file: File): Promise<IncidentPhoto> {
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) throw new Error('Upload a JPEG, PNG, WebP, or GIF image.');
+  if (file.size === 0) throw new Error('The selected image is empty.');
+  if (file.size > 10 * 1024 * 1024) throw new Error('Images must be smaller than 10 MB.');
+  const current = firebaseAuth.currentUser;
+  if (!current) throw new Error('You must be signed in to upload a photo.');
+  const storagePath = `incidents/${incidentId}/${crypto.randomUUID()}-${file.name}`;
+  await uploadBytes(ref(firebaseStorage, storagePath), file, { contentType: file.type });
+  try {
+    const photo: IncidentPhoto = { id: crypto.randomUUID(), incidentId, name: file.name, url: await getDownloadURL(ref(firebaseStorage, storagePath)), storagePath, uploadedAt: new Date().toISOString(), uploadedBy: current.uid, uploadedByName: current.displayName || current.email || 'Unknown user' };
+    const batch = writeBatch(firestore);
+    batch.set(doc(firestore, 'disaster_incident_photos', photo.id), { ...photo, uploadedAt: serverTimestamp() });
+    writeAudit(batch, 'incident_photo', photo.id, 'created', incidentId, undefined, photo);
+    await batch.commit();
+    return photo;
+  } catch (error) {
+    try {
+      await deleteObject(ref(firebaseStorage, storagePath));
+    } catch (cleanupError) {
+      throw new Error(`Photo metadata could not be saved, and the uploaded file could not be removed: ${String(cleanupError)}`);
+    }
+    throw error;
+  }
+}
+export async function deleteIncidentPhoto(photo: IncidentPhoto): Promise<void> {
+  const batch = writeBatch(firestore);
+  batch.delete(doc(firestore, 'disaster_incident_photos', photo.id));
+  writeAudit(batch, 'incident_photo', photo.id, 'deleted', photo.incidentId, photo);
+  await batch.commit();
+  await deleteObject(ref(firebaseStorage, photo.storagePath));
 }
 export async function getIncidentOverview(id: number): Promise<IncidentOverview | undefined> {
   const incident = await getIncident(id); if (!incident) return undefined;
@@ -213,8 +311,8 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
 }
 export async function generateSituationalReport(input: SituationalReportInput): Promise<SituationalReport> {
   const incident = await getIncident(input.incidentId); if (!incident) throw new Error('Incident not found');
-  const [centers, damages] = await Promise.all([listEvacuationCenters({ incidentId: input.incidentId }), listStructureDamages({ incidentId: input.incidentId })]);
-  return { ...input, reportNumber: `SITREP-${new Date().getFullYear()}-${String(input.incidentId).padStart(3, '0')}`, generatedAt: new Date().toISOString(), incident, centers, damages };
+  const [centers, damages, photos] = await Promise.all([listEvacuationCenters({ incidentId: input.incidentId }), listStructureDamages({ incidentId: input.incidentId }), listIncidentPhotos(input.incidentId)]);
+  return { ...input, reportNumber: `SITREP-${new Date().getFullYear()}-${String(input.incidentId).padStart(3, '0')}`, generatedAt: new Date().toISOString(), incident, centers, damages, photos };
 }
 export async function upsertUser(user: FirestoreUser): Promise<void> { await setDoc(doc(firestore, names.users, user.id), { ...user, createdAt: dateValue(user.createdAt) }, { merge: true }); }
 export async function updateUserRole(id: string, role: UserRole): Promise<void> { await setDoc(doc(firestore, names.users, id), { role }, { merge: true }); }

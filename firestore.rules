@@ -50,5 +50,21 @@ service cloud.firestore {
       allow create: if signedIn() && document == 'seed_status';
       allow update: if isAdministrator();
     }
+
+    match /disaster_audit_logs/{document} {
+      allow read: if signedIn();
+      allow create: if canOperate()
+        && request.resource.data.changedBy == request.auth.uid
+        && request.resource.data.changedAt == request.time
+        && request.resource.data.action in ['created', 'updated', 'deleted']
+        && request.resource.data.incidentId is int;
+      allow update, delete: if false;
+    }
+
+    match /disaster_incident_photos/{document} {
+      allow read: if signedIn();
+      allow create, delete: if canOperate();
+      allow update: if false;
+    }
   }
 }

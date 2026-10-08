@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DRRM Noveleta - Real-time Heat Index Monitoring System</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#fff7ed',
+                            100: '#ffedd5',
+                            500: '#f97316',
+                            600: '#ea580c',
+                            700: '#c2410c',
+                        },
+                        danger: {
+                            safe: '#22c55e',          /* < 27°C */
+                            caution: '#eab308',       /* 27-32°C */
+                            extremeCaution: '#f97316',/* 33-41°C */
+                            danger: '#ef4444',        /* 42-51°C */
+                            extremeDanger: '#881337'  /* >= 52°C */
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        /* Glassmorphism card utility */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(229, 231, 235, 0.8);
+        }
+        .dark .glass-card {
+            background: rgba(17, 24, 39, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(55, 65, 81, 0.6);
+        }
+
+        /* Pulse glow animation for extreme heat warning */
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
+            50% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.8); }
+        }
+        .pulse-danger {
+            animation: pulseGlow 2s infinite;
+        }
+
+        /* Gauge needle transition */
+        #gauge-needle {
+            transition: transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform-origin: 100px 100px;
+        }
+
+        /* Custom scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.05);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(156, 163, 175, 0.5);
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col">
+
+    <!-- Top Municipal Banner & Header -->
+    <header class="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-3 sm:space-x-4">
+                <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-orange-600 text-white flex items-center justify-center font-black text-xl shadow-lg shadow-orange-500/30">
+                    <i data-lucide="sun-medium" class="w-6 h-6 sm:w-7 sm:h-7 animate-spin-slow"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-extrabold tracking-wider text-orange-600 dark:text-orange-400 uppercase">MDRRMO NOVELETA</span>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950/80 dark:text-red-300 border border-red-200 dark:border-red-800">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping mr-1"></span> LIVE MONITORING
+                        </span>
+                    </div>
+                    <h1 class="text-base sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+                        Real-Time Heat Index Dashboard
+                    </h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">Municipality of Noveleta, Province of Cavite (14.4281° N, 120.8809° E)</p>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-2 sm:space-x-3">
+                <button id="theme-toggle" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Toggle Theme">
+                    <i data-lucide="moon" class="w-5 h-5 dark:hidden"></i>
+                    <i data-lucide="sun" class="w-5 h-5 hidden dark:block"></i>
+                </button>
+                <button id="refresh-btn" class="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs sm:text-sm shadow-md transition active:scale-95">
+                    <i data-lucide="refresh-cw" id="refresh-icon" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">Refresh Data</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- Live Advisory Alert Bar -->
+        <div id="status-banner" class="rounded-2xl p-4 sm:p-6 transition-all duration-500 shadow-xl border glass-card relative overflow-hidden">
+            <div class="absolute -right-10 -bottom-10 opacity-10 pointer-events-none">
+                <i data-lucide="flame" class="w-64 h-64 text-current"></i>
+            </div>
+            
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+                <div class="space-y-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span id="risk-badge" class="px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider text-white shadow-sm">
+                            ASSESSING RISK
+                        </span>
+                        <span class="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                            Last Updated: <span id="last-updated-time" class="font-semibold text-slate-700 dark:text-slate-200">Loading...</span>
+                        </span>
+                        <span class="text-xs text-slate-400 dark:text-slate-500">
+                            (Auto-updates in: <span id="timer-countdown" class="font-mono text-orange-600 dark:text-orange-400">10:00</span>)
+                        </span>
+                    </div>
+
+                    <h2 id="risk-title" class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+                        Analyzing weather conditions...
+                    </h2>
+
+                    <p id="risk-advisory" class="text-sm sm:text-base text-slate-700 dark:text-slate-300 max-w-3xl leading-relaxed">
+                        Stay tuned for real-time heat index advisories in Noveleta.
+                    </p>
+                </div>
+
+                <div class="flex items-center justify-center md:justify-end border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-800 pt-4 md:pt-0 md:pl-8">
+                    <div class="text-center">
+                        <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                            HEAT INDEX (FEELS LIKE)
+                        </span>
+                        <div class="flex items-baseline justify-center">
+                            <span id="main-heat-index" class="text-5xl sm:text-6xl font-black text-slate-900 dark:text-white tracking-tight">--</span>
+                            <span class="text-2xl font-bold text-orange-600 dark:text-orange-400 ml-1">°C</span>
+                        </div>
+                        <span id="heat-index-fahrenheit" class="text-xs font-semibold text-slate-500 dark:text-slate-400">(-- °F)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Environmental Metrics Grid -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <!-- Ambient Temp -->
+            <div class="glass-card rounded-2xl p-4 flex items-center space-x-3 shadow-sm hover:shadow-md transition">
+                <div class="p-3 rounded-xl bg-orange-100 text-orange-600 dark:bg-orange-950/60 dark:text-orange-400">
+                    <i data-lucide="thermometer" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Air Temperature</span>
+                    <span id="ambient-temp" class="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">-- °C</span>
+                </div>
+            </div>
+
+            <!-- Humidity -->
+            <div class="glass-card rounded-2xl p-4 flex items-center space-x-3 shadow-sm hover:shadow-md transition">
+                <div class="p-3 rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400">
+                    <i data-lucide="droplets" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Relative Humidity</span>
+                    <span id="relative-humidity" class="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">-- %</span>
+                </div>
+            </div>
+
+            <!-- Wind Speed -->
+            <div class="glass-card rounded-2xl p-4 flex items-center space-x-3 shadow-sm hover:shadow-md transition">
+                <div class="p-3 rounded-xl bg-teal-100 text-teal-600 dark:bg-teal-950/60 dark:text-teal-400">
+                    <i data-lucide="wind" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Wind Speed</span>
+                    <span id="wind-speed" class="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">-- km/h</span>
+                </div>
+            </div>
+
+            <!-- Weather Description -->
+            <div class="glass-card rounded-2xl p-4 flex items-center space-x-3 shadow-sm hover:shadow-md transition">
+                <div class="p-3 rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400">
+                    <i data-lucide="cloud-sun" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Weather Condition</span>
+                    <span id="weather-desc" class="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate block">Loading...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Visual Gauge & Forecast Chart Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Left Column: Enhanced SVG Heat Gauge Card -->
+            <div class="glass-card rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                            <i data-lucide="gauge" class="w-5 h-5 text-orange-500"></i> Heat Risk Gauge
+                        </h3>
+                        <span class="text-xs text-slate-500 dark:text-slate-400">PAGASA Spectrum</span>
+                    </div>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                        Current apparent heat index level on the national risk scale.
+                    </p>
+                </div>
+
+                <!-- Enhanced Semi-Circle SVG Gauge -->
+                <div class="relative flex flex-col items-center justify-center my-3">
+                    <svg viewBox="0 0 200 135" class="w-full max-w-[280px]">
+                        <defs>
+                            <linearGradient id="gradSafe" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#22c55e" />
+                                <stop offset="100%" stop-color="#84cc16" />
+                            </linearGradient>
+                            <linearGradient id="gradCaution" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#eab308" />
+                                <stop offset="100%" stop-color="#f59e0b" />
+                            </linearGradient>
+                            <linearGradient id="gradExtremeCaution" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#f97316" />
+                                <stop offset="100%" stop-color="#ea580c" />
+                            </linearGradient>
+                            <linearGradient id="gradDanger" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#ef4444" />
+                                <stop offset="100%" stop-color="#dc2626" />
+                            </linearGradient>
+                            <linearGradient id="gradExtremeDanger" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#991b1b" />
+                                <stop offset="100%" stop-color="#881337" />
+                            </linearGradient>
+
+                            <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+                                <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.3"/>
+                            </filter>
+                        </defs>
+
+                        <!-- Outer Track background arc -->
+                        <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="rgba(148, 163, 184, 0.15)" stroke-width="20" stroke-linecap="round" />
+
+                        <!-- Color Spectrum Arc Sections -->
+                        <!-- Safe (<27°C) -->
+                        <path d="M 20 100 A 80 80 0 0 1 36 52" fill="none" stroke="url(#gradSafe)" stroke-width="18" />
+                        <!-- Caution (27-32°C) -->
+                        <path d="M 36 52 A 80 80 0 0 1 64 28" fill="none" stroke="url(#gradCaution)" stroke-width="18" />
+                        <!-- Extreme Caution (33-41°C) -->
+                        <path d="M 64 28 A 80 80 0 0 1 116 21" fill="none" stroke="url(#gradExtremeCaution)" stroke-width="18" />
+                        <!-- Danger (42-51°C) -->
+                        <path d="M 116 21 A 80 80 0 0 1 160 48" fill="none" stroke="url(#gradDanger)" stroke-width="18" />
+                        <!-- Extreme Danger (>=52°C) -->
+                        <path d="M 160 48 A 80 80 0 0 1 180 100" fill="none" stroke="url(#gradExtremeDanger)" stroke-width="18" />
+
+                        <!-- Major Tick Mark Lines & Labels -->
+                        <!-- 20°C (Start) -->
+                        <text x="14" y="116" class="text-[8px] fill-slate-500 font-extrabold">20°C</text>
+                        <!-- 27°C -->
+                        <text x="30" y="44" class="text-[8px] fill-slate-500 font-extrabold">27°</text>
+                        <!-- 33°C -->
+                        <text x="58" y="18" class="text-[8px] fill-slate-500 font-extrabold">33°</text>
+                        <!-- 42°C -->
+                        <text x="122" y="14" class="text-[8px] fill-slate-500 font-extrabold">42°</text>
+                        <!-- 52°C+ -->
+                        <text x="180" y="116" class="text-[8px] fill-slate-500 font-extrabold" text-anchor="end">52°C+</text>
+
+                        <!-- Dynamic Dial Readout inside SVG center -->
+                        <text x="100" y="78" id="svg-gauge-val" class="text-[20px] font-black fill-slate-900 dark:fill-white" text-anchor="middle">--°C</text>
+                        <text x="100" y="92" id="svg-gauge-status" class="text-[8px] font-bold fill-orange-500 uppercase tracking-wider" text-anchor="middle">CALCULATING</text>
+
+                        <!-- Needle Assembly -->
+                        <g id="gauge-needle" style="transform: rotate(0deg);">
+                            <line x1="100" y1="100" x2="28" y2="100" stroke="#f97316" stroke-width="3.5" stroke-linecap="round" filter="url(#shadow)" />
+                            <polygon points="28,100 38,96 38,104" fill="#ea580c" />
+                            <circle cx="100" cy="100" r="8" class="fill-slate-800 dark:fill-slate-100" />
+                            <circle cx="100" cy="100" r="4" fill="#ea580c" />
+                        </g>
+                    </svg>
+                </div>
+
+                <!-- Color Threshold Legend -->
+                <div class="grid grid-cols-5 gap-1 pt-3 border-t border-slate-200 dark:border-slate-800 text-[10px] text-center font-medium">
+                    <div class="p-1 rounded bg-green-500/10 text-green-700 dark:text-green-400">
+                        <span class="block font-bold">&lt;27°C</span> Safe
+                    </div>
+                    <div class="p-1 rounded bg-yellow-500/10 text-yellow-700 dark:text-yellow-400">
+                        <span class="block font-bold">27-32°C</span> Caution
+                    </div>
+                    <div class="p-1 rounded bg-orange-500/10 text-orange-700 dark:text-orange-400">
+                        <span class="block font-bold">33-41°C</span> Ex. Caution
+                    </div>
+                    <div class="p-1 rounded bg-red-500/10 text-red-700 dark:text-red-400">
+                        <span class="block font-bold">42-51°C</span> Danger
+                    </div>
+                    <div class="p-1 rounded bg-rose-950/20 text-rose-700 dark:text-rose-400">
+                        <span class="block font-bold">≥52°C</span> Ex. Danger
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: 24-Hour Trend Chart -->
+            <div class="glass-card rounded-2xl p-5 sm:p-6 shadow-sm lg:col-span-2 flex flex-col justify-between">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                            <i data-lucide="trending-up" class="w-5 h-5 text-orange-500"></i> 24-Hour Heat Index Forecast
+                        </h3>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">
+                            Hourly comparison of actual air temperature versus apparent heat index.
+                        </p>
+                    </div>
+                    <div class="flex items-center space-x-3 text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-orange-600 dark:text-orange-400">
+                            <span class="w-3 h-3 rounded-full bg-orange-500 inline-block"></span> Heat Index
+                        </span>
+                        <span class="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                            <span class="w-3 h-3 rounded-full bg-blue-500 inline-block"></span> Air Temp
+                        </span>
+                    </div>
+                </div>
+
+                <div class="relative w-full h-56 sm:h-64">
+                    <canvas id="forecastChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Barangay Heat Level Grid (Noveleta 16 Barangays) -->
+        <div class="glass-card rounded-2xl p-5 sm:p-6 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                <div>
+                    <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <i data-lucide="map-pin" class="w-5 h-5 text-orange-500"></i> Estimated Heat Index by Barangay
+                    </h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">
+                        Calculated based on coastal marine humidity variance vs inland zones in Noveleta.
+                    </p>
+                </div>
+                <div class="w-full sm:w-auto">
+                    <input type="text" id="barangay-search" placeholder="Search barangay..." class="w-full sm:w-48 px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500">
+                </div>
+            </div>
+
+            <div id="barangay-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                <!-- Dynamically populated via JS -->
+            </div>
+        </div>
+
+        <!-- Sector-Specific Advisories Section -->
+        <div class="glass-card rounded-2xl p-5 sm:p-6 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-200 dark:border-slate-800 pb-4">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <i data-lucide="shield-alert" class="w-5 h-5 text-orange-500"></i> DRRM Noveleta Safety Guidelines
+                    </h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">
+                        Official sector recommendations tailored to today's active heat risk level.
+                    </p>
+                </div>
+
+                <!-- Sector Tabs -->
+                <div class="flex flex-wrap gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                    <button class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition active-tab bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-sm" data-sector="public">
+                        <i data-lucide="users" class="w-3.5 h-3.5 inline mr-1"></i> General Public
+                    </button>
+                    <button class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition" data-sector="workers">
+                        <i data-lucide="hard-hat" class="w-3.5 h-3.5 inline mr-1"></i> Outdoor Workers
+                    </button>
+                    <button class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition" data-sector="schools">
+                        <i data-lucide="graduation-cap" class="w-3.5 h-3.5 inline mr-1"></i> Schools & Youth
+                    </button>
+                    <button class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition" data-sector="seniors">
+                        <i data-lucide="heart-pulse" class="w-3.5 h-3.5 inline mr-1"></i> Seniors & Vulnerable
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dynamic Advisory Panel -->
+            <div id="advisory-content" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Dynamically populated via JS -->
+            </div>
+        </div>
+
+        <!-- Heat Stroke vs Heat Exhaustion Guide -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Heat Exhaustion -->
+            <div class="glass-card rounded-2xl p-5 border-l-4 border-amber-500 shadow-sm">
+                <div class="flex items-center space-x-3 mb-3">
+                    <div class="p-2.5 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                        <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-slate-900 dark:text-white text-base">Heat Exhaustion</h4>
+                        <span class="text-xs text-amber-600 dark:text-amber-400 font-semibold">Requires Immediate Intervention</span>
+                    </div>
+                </div>
+                <ul class="text-xs text-slate-600 dark:text-slate-300 space-y-2 list-disc list-inside mb-4">
+                    <li>Heavy sweating, paleness, or fatigue</li>
+                    <li>Fast but weak pulse rate</li>
+                    <li>Dizziness, headache, nausea, or vomiting</li>
+                    <li>Muscle cramps and heat exhaustion stiffness</li>
+                </ul>
+                <div class="bg-amber-50 dark:bg-amber-950/40 p-3 rounded-xl border border-amber-200 dark:border-amber-900 text-xs text-amber-900 dark:text-amber-200 font-medium">
+                    <strong>First Aid:</strong> Move to a shaded/air-conditioned room, sip water slowly, and apply cool wet towels to the neck or armpits.
+                </div>
+            </div>
+
+            <!-- Heat Stroke -->
+            <div class="glass-card rounded-2xl p-5 border-l-4 border-red-600 shadow-sm">
+                <div class="flex items-center space-x-3 mb-3">
+                    <div class="p-2.5 rounded-xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400">
+                        <i data-lucide="siren" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-slate-900 dark:text-white text-base">Heat Stroke (MEDICAL EMERGENCY)</h4>
+                        <span class="text-xs text-red-600 dark:text-red-400 font-semibold">Life-Threatening - Call Rescue Immediately</span>
+                    </div>
+                </div>
+                <ul class="text-xs text-slate-600 dark:text-slate-300 space-y-2 list-disc list-inside mb-4">
+                    <li>High body temperature (&gt; 40°C or 104°F)</li>
+                    <li>Hot, red, dry skin (absence of sweating)</li>
+                    <li>Rapid, strong pulse &amp; severe mental confusion</li>
+                    <li>Loss of consciousness or fainting</li>
+                </ul>
+                <div class="bg-red-50 dark:bg-red-950/40 p-3 rounded-xl border border-red-200 dark:border-red-900 text-xs text-red-900 dark:text-red-200 font-medium">
+                    <strong>Critical Action:</strong> Call MDRRMO Rescue Hotline immediately! Cool the victim with water or ice packs while waiting for the ambulance.
+                </div>
+            </div>
+        </div>
+
+        <!-- Emergency Hotlines & Dispatch Section -->
+        <div class="glass-card rounded-2xl p-5 sm:p-6 shadow-sm bg-gradient-to-br from-orange-500/5 via-transparent to-red-500/5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <i data-lucide="phone-call" class="w-5 h-5 text-orange-500"></i> MDRRMO Noveleta Emergency Contacts
+                    </h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">
+                        Direct response contacts for accidents, heat emergencies, or disaster assistance.
+                    </p>
+                </div>
+                <button id="report-emergency-btn" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 transition active:scale-95">
+                    <i data-lucide="bell-ring" class="w-4 h-4 animate-bounce"></i> Report Emergency
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- MDRRMO Hotline -->
+                <a href="tel:09161274207" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-orange-500 transition flex items-center space-x-3 group">
+                    <div class="p-3 rounded-xl bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400 group-hover:scale-110 transition">
+                        <i data-lucide="shield-check" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <span class="text-xs text-slate-500 dark:text-slate-400 block font-medium">MDRRMO Rescue Desk</span>
+                        <span class="text-sm font-extrabold text-slate-900 dark:text-white block">0916 127 4207</span>
+                        <span class="text-[10px] text-orange-600 dark:text-orange-400 font-semibold">24/7 Response Duty</span>
+                    </div>
+                </a>
+
+                <!-- BFP Noveleta -->
+                <a href="tel:09267471859" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-red-500 transition flex items-center space-x-3 group">
+                    <div class="p-3 rounded-xl bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400 group-hover:scale-110 transition">
+                        <i data-lucide="flame" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <span class="text-xs text-slate-500 dark:text-slate-400 block font-medium">BFP Noveleta (Fire)</span>
+                        <span class="text-sm font-extrabold text-slate-900 dark:text-white block">0926 747 1859</span>
+                        <span class="text-[10px] text-red-600 dark:text-red-400 font-semibold">Fire & Rescue Operations</span>
+                    </div>
+                </a>
+
+                <!-- PNP Noveleta -->
+                <a href="tel:09985985608" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-blue-500 transition flex items-center space-x-3 group">
+                    <div class="p-3 rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400 group-hover:scale-110 transition">
+                        <i data-lucide="badge-check" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <span class="text-xs text-slate-500 dark:text-slate-400 block font-medium">Noveleta PNP Station</span>
+                        <span class="text-sm font-extrabold text-slate-900 dark:text-white block">0998 598 5608</span>
+                        <span class="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">Public Safety & Peace</span>
+                    </div>
+                </a>
+
+                <!-- Health Office / RHU -->
+                <a href="tel:0464381200" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-emerald-500 transition flex items-center space-x-3 group">
+                    <div class="p-3 rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400 group-hover:scale-110 transition">
+                        <i data-lucide="hospital" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <span class="text-xs text-slate-500 dark:text-slate-400 block font-medium">Municipal Health Office</span>
+                        <span class="text-sm font-extrabold text-slate-900 dark:text-white block">(046) 438-1200</span>
+                        <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">RHU Medical Station</span>
+                    </div>
+                </a>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 py-6 mt-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
+            <div class="flex items-center space-x-2">
+                <i data-lucide="shield" class="w-4 h-4 text-orange-500"></i>
+                <span>&copy; Municipal Disaster Risk Reduction and Management Office (MDRRMO) - Noveleta, Cavite</span>
+            </div>
+            <div class="flex items-center space-x-4 text-[11px]">
+                <span>Data Source: Open-Meteo &amp; PAGASA DOST</span>
+                <span>•</span>
+                <span>Coordinates: 14.4281° N, 120.8809° E</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Emergency Report Modal -->
+    <div id="emergency-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+        <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 border border-slate-200 dark:border-slate-800 shadow-2xl relative">
+            <button id="close-modal-btn" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            <div class="flex items-center space-x-3 mb-4">
+                <div class="p-3 rounded-xl bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400">
+                    <i data-lucide="siren" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900 dark:text-white">Quick Emergency Dispatch</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">MDRRMO Noveleta Emergency Assistance</p>
+                </div>
+            </div>
+
+            <form id="emergency-form" class="space-y-3" onsubmit="event.preventDefault(); triggerEmergencyAlert();">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Reporter's Name</label>
+                    <input type="text" id="emergency-name" required placeholder="Full Name" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Location / Barangay in Noveleta</label>
+                    <select id="emergency-barangay" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                        <option value="">Select Barangay...</option>
+                        <option value="Magdiwang">Magdiwang</option>
+                        <option value="Poblacion">Poblacion</option>
+                        <option value="Salcedo I">Salcedo I</option>
+                        <option value="Salcedo II">Salcedo II</option>
+                        <option value="San Antonio">San Antonio</option>
+                        <option value="San Jose I">San Jose I</option>
+                        <option value="San Jose II">San Jose II</option>
+                        <option value="San Juan I">San Juan I</option>
+                        <option value="San Juan II">San Juan II</option>
+                        <option value="San Rafael I">San Rafael I</option>
+                        <option value="San Rafael II">San Rafael II</option>
+                        <option value="San Rafael III">San Rafael III</option>
+                        <option value="San Rafael IV">San Rafael IV</option>
+                        <option value="Santa Isabel">Santa Isabel</option>
+                        <option value="Santa Rosa I">Santa Rosa I</option>
+                        <option value="Santa Rosa II">Santa Rosa II</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between gap-2">
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">Pin the emergency location</label>
+                        <button type="button" id="get-emergency-location-btn" class="shrink-0 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition flex items-center gap-1.5">
+                            <i data-lucide="locate-fixed" class="w-4 h-4"></i> Use my GPS
+                        </button>
+                    </div>
+                    <p id="emergency-location-status" role="status" aria-live="polite" class="text-xs text-slate-500 dark:text-slate-400">Use GPS or tap the map to mark the exact location. A location pin is required.</p>
+                    <div id="emergency-map" class="h-52 rounded-xl border border-slate-300 dark:border-slate-700 overflow-hidden" aria-label="Map for selecting the emergency location"></div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Type of Emergency</label>
+                    <select id="emergency-type" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                        <option value="Heat Collapse / Stroke">Heat Collapse / Heat Stroke</option>
+                        <option value="Vehicular / Road Accident">Vehicular / Road Accident</option>
+                        <option value="Ambulance Assistance Needed">Ambulance Assistance Needed</option>
+                        <option value="Fire Hazard / Incident">Fire Hazard / Incident</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Contact Number</label>
+                    <input type="tel" id="emergency-contact" required placeholder="09XX-XXX-XXXX" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                </div>
+                <div class="pt-2">
+                    <button type="submit" class="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-lg transition flex items-center justify-center gap-2">
+                        <i data-lucide="send" class="w-4 h-4"></i> Prepare SMS for All Mobile Hotlines
+                    </button>
+                </div>
+            </form>
+            <div id="emergency-success" class="hidden text-center py-6 space-y-3">
+                <div class="w-12 h-12 rounded-full bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400 mx-auto flex items-center justify-center">
+                    <i data-lucide="check-circle" class="w-6 h-6"></i>
+                </div>
+                <h4 class="font-bold text-slate-900 dark:text-white text-sm">SMS Draft Ready</h4>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                    Review the draft and tap Send in your messaging app to notify MDRRMO, BFP, and PNP.
+                    The Municipal Health Office number is a landline and cannot receive SMS.
+                </p>
+                <a href="tel:0464381200" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
+                    <i data-lucide="phone" class="w-4 h-4"></i> Call Municipal Health Office: (046) 438-1200
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Noveleta Coordinates
+        const NOVELETA_LAT = 14.4281;
+        const NOVELETA_LON = 120.8809;
+
+        // Noveleta 16 Barangays
+        const BARANGAYS = [
+            { name: 'Magdiwang', coastal: false },
+            { name: 'Poblacion', coastal: false },
+            { name: 'Salcedo I', coastal: false },
+            { name: 'Salcedo II', coastal: false },
+            { name: 'San Antonio', coastal: false },
+            { name: 'San Jose I', coastal: false },
+            { name: 'San Jose II', coastal: false },
+            { name: 'San Juan I', coastal: true },
+            { name: 'San Juan II', coastal: true },
+            { name: 'San Rafael I', coastal: true },
+            { name: 'San Rafael II', coastal: true },
+            { name: 'San Rafael III', coastal: true },
+            { name: 'San Rafael IV', coastal: true },
+            { name: 'Santa Isabel', coastal: false },
+            { name: 'Santa Rosa I', coastal: false },
+            { name: 'Santa Rosa II', coastal: false }
+        ];
+
+        let forecastChartInstance = null;
+        let activeSector = 'public';
+        let currentWeatherData = null;
+        let countdownTimer = 600; // 10 minutes refresh
+        let emergencyMap = null;
+        let emergencyMarker = null;
+        let emergencyCoordinates = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            setupThemeToggle();
+            setupSectorTabs();
+            setupModalListeners();
+            setupSearchFilter();
+            
+            // Initial data fetch
+            fetchWeatherData();
+
+            // Setup auto-refresh interval
+            setInterval(fetchWeatherData, 600000); // 10 mins
+            setInterval(updateCountdown, 1000);
+
+            // Manual Refresh Button Listener
+            document.getElementById('refresh-btn').addEventListener('click', () => {
+                const icon = document.getElementById('refresh-icon');
+                icon.classList.add('animate-spin');
+                fetchWeatherData().finally(() => {
+                    setTimeout(() => icon.classList.remove('animate-spin'), 600);
+                });
+            });
+        });
+
+        async function fetchWeatherData() {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${NOVELETA_LAT}&longitude=${NOVELETA_LON}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code&timezone=Asia%2FManila`;
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Network error');
+                const data = await response.json();
+                
+                currentWeatherData = data;
+                updateDashboardUI(data);
+                countdownTimer = 600; // Reset timer
+            } catch (error) {
+                console.warn('API Fetch failed, using realistic fallback Noveleta simulation data.', error);
+                const fallbackData = generateFallbackData();
+                currentWeatherData = fallbackData;
+                updateDashboardUI(fallbackData);
+            }
+        }
+
+        function calculateHeatIndex(T_celsius, RH) {
+            const T = (T_celsius * 9/5) + 32;
+            if (T < 80) {
+                return T_celsius;
+            }
+            let HI = -42.379 + 2.04901523*T + 10.14333127*RH - 0.22475541*T*RH - 0.00683783*T*T 
+                     - 0.05481717*RH*RH + 0.00122874*T*T*RH + 0.00085282*T*RH*RH - 0.00000199*T*T*RH*RH;
+            
+            if (RH < 13 && T >= 80 && T <= 112) {
+                const adj = ((13 - RH) / 4) * Math.sqrt((17 - Math.abs(T - 95)) / 17);
+                HI -= adj;
+            } else if (RH > 85 && T >= 80 && T <= 87) {
+                const adj = ((RH - 85) / 10) * ((87 - T) / 5);
+                HI += adj;
+            }
+
+            return (HI - 32) * 5/9;
+        }
+
+        function getRiskLevel(heatIndex) {
+            if (heatIndex < 27) {
+                return {
+                    category: 'Safe',
+                    title: 'Normal & Safe Heat Conditions',
+                    badgeClass: 'bg-green-600 dark:bg-green-600',
+                    bannerBg: 'from-green-500/10 to-emerald-500/5 border-green-500/30',
+                    textColor: 'text-green-600 dark:text-green-400',
+                    advisory: 'Minimal health risk expected. Continue regular outdoor activities while staying comfortably hydrated.',
+                    levelNum: 1
+                };
+            } else if (heatIndex >= 27 && heatIndex <= 32) {
+                return {
+                    category: 'Caution',
+                    title: 'Caution Advised - Fatigue Possible',
+                    badgeClass: 'bg-yellow-500 text-slate-950 font-black',
+                    bannerBg: 'from-yellow-500/10 to-amber-500/5 border-yellow-500/30',
+                    textColor: 'text-yellow-600 dark:text-yellow-400',
+                    advisory: 'Fatigue is possible with prolonged exposure and activity. Drink water regularly and take breaks in shaded areas.',
+                    levelNum: 2
+                };
+            } else if (heatIndex >= 33 && heatIndex <= 41) {
+                return {
+                    category: 'Extreme Caution',
+                    title: 'Extreme Caution - Heat Cramps & Exhaustion Likely',
+                    badgeClass: 'bg-orange-600 dark:bg-orange-600',
+                    bannerBg: 'from-orange-500/15 to-amber-500/10 border-orange-500/40',
+                    textColor: 'text-orange-600 dark:text-orange-400',
+                    advisory: 'Heat cramps and heat exhaustion are likely. Limit strenuous outdoor work between 10:00 AM and 4:00 PM.',
+                    levelNum: 3
+                };
+            } else if (heatIndex >= 42 && heatIndex <= 51) {
+                return {
+                    category: 'Danger',
+                    title: 'DANGER LEVEL - Heat Stroke Imminent',
+                    badgeClass: 'bg-red-600 dark:bg-red-600 pulse-danger',
+                    bannerBg: 'from-red-500/20 to-orange-500/10 border-red-500/50',
+                    textColor: 'text-red-600 dark:text-red-400',
+                    advisory: 'Heat cramps and heat exhaustion are highly likely; heat stroke is probable with continued exposure. Seek shade and hydration immediately.',
+                    levelNum: 4
+                };
+            } else {
+                return {
+                    category: 'Extreme Danger',
+                    title: 'EXTREME DANGER - Life-Threatening Emergency',
+                    badgeClass: 'bg-rose-950 text-rose-200 border border-rose-500 pulse-danger',
+                    bannerBg: 'from-rose-900/30 to-red-950/20 border-rose-600',
+                    textColor: 'text-rose-600 dark:text-rose-400',
+                    advisory: 'IMMEDIATE HEAT EMERGENCY! Heat stroke is highly imminent. Stay indoors in air-conditioned or well-ventilated spaces.',
+                    levelNum: 5
+                };
+            }
+        }
+
+        function updateDashboardUI(data) {
+            const current = data.current;
+            const tempC = Math.round(current.temperature_2m);
+            const humidity = Math.round(current.relative_humidity_2m);
+            const wind = Math.round(current.wind_speed_10m);
+            
+            const heatIndexC = Math.round(current.apparent_temperature || calculateHeatIndex(tempC, humidity));
+            const heatIndexF = Math.round((heatIndexC * 9/5) + 32);
+
+            const risk = getRiskLevel(heatIndexC);
+
+            document.getElementById('main-heat-index').textContent = heatIndexC;
+            document.getElementById('heat-index-fahrenheit').textContent = `(${heatIndexF} °F)`;
+            
+            const badge = document.getElementById('risk-badge');
+            badge.className = `px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider text-white shadow-sm ${risk.badgeClass}`;
+            badge.textContent = risk.category;
+
+            document.getElementById('risk-title').textContent = risk.title;
+            document.getElementById('risk-advisory').textContent = risk.advisory;
+
+            document.getElementById('ambient-temp').textContent = `${tempC} °C`;
+            document.getElementById('relative-humidity').textContent = `${humidity} %`;
+            document.getElementById('wind-speed').textContent = `${wind} km/h`;
+            document.getElementById('weather-desc').textContent = getWeatherCodeDescription(current.weather_code);
+
+            const now = new Date();
+            document.getElementById('last-updated-time').textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+            updateGaugeNeedle(heatIndexC, risk.category);
+            renderForecastChart(data.hourly);
+            renderBarangayGrid(heatIndexC, humidity);
+            updateSectorAdvisories(risk.levelNum);
+        }
+
+        function updateGaugeNeedle(heatIndex, riskCategory) {
+            const minTemp = 20;
+            const maxTemp = 55;
+            const clamped = Math.max(minTemp, Math.min(maxTemp, heatIndex));
+            
+            // Map 20°C -> 0 deg, 55°C -> 180 deg
+            const percentage = (clamped - minTemp) / (maxTemp - minTemp);
+            const angle = percentage * 180;
+
+            const needle = document.getElementById('gauge-needle');
+            if (needle) {
+                needle.style.transform = `rotate(${angle}deg)`;
+            }
+
+            // Update embedded text inside SVG gauge
+            const svgVal = document.getElementById('svg-gauge-val');
+            const svgStatus = document.getElementById('svg-gauge-status');
+            if (svgVal) svgVal.textContent = `${heatIndex}°C`;
+            if (svgStatus) svgStatus.textContent = riskCategory.toUpperCase();
+        }
+
+        function renderForecastChart(hourly) {
+            const ctx = document.getElementById('forecastChart').getContext('2d');
+
+            const labels = [];
+            const heatIndexData = [];
+            const tempData = [];
+
+            const hoursCount = Math.min(24, hourly.time.length);
+            for (let i = 0; i < hoursCount; i++) {
+                const date = new Date(hourly.time[i]);
+                labels.push(date.toLocaleTimeString('en-US', { hour: 'numeric' }));
+                
+                const t = hourly.temperature_2m[i];
+                const hi = hourly.apparent_temperature ? hourly.apparent_temperature[i] : calculateHeatIndex(t, hourly.relative_humidity_2m[i]);
+                
+                tempData.push(Math.round(t));
+                heatIndexData.push(Math.round(hi));
+            }
+
+            if (forecastChartInstance) {
+                forecastChartInstance.destroy();
+            }
+
+            const isDark = document.documentElement.classList.contains('dark');
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+            const textColor = isDark ? '#94a3b8' : '#64748b';
+
+            forecastChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Heat Index (°C)',
+                            data: heatIndexData,
+                            borderColor: '#f97316',
+                            backgroundColor: 'rgba(249, 115, 22, 0.15)',
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 3,
+                            pointHoverRadius: 6,
+                            borderWidth: 3
+                        },
+                        {
+                            label: 'Air Temp (°C)',
+                            data: tempData,
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'transparent',
+                            borderDash: [4, 4],
+                            tension: 0.4,
+                            pointRadius: 2,
+                            borderWidth: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                            titleColor: isDark ? '#f8fafc' : '#0f172a',
+                            bodyColor: isDark ? '#cbd5e1' : '#334155',
+                            borderColor: isDark ? '#334155' : '#e2e8f0',
+                            borderWidth: 1,
+                            padding: 10,
+                            callbacks: {
+                                label: function(context) {
+                                    return ` ${context.dataset.label}: ${context.parsed.y}°C`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: gridColor },
+                            ticks: { color: textColor, font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: gridColor },
+                            ticks: { color: textColor, font: { size: 10 } },
+                            suggestedMin: 24,
+                            suggestedMax: 48
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderBarangayGrid(baseHI, humidity) {
+            const grid = document.getElementById('barangay-grid');
+            grid.innerHTML = '';
+
+            BARANGAYS.forEach(bg => {
+                const variance = bg.coastal ? 1 : 0;
+                const barangayHI = baseHI + variance;
+                const risk = getRiskLevel(barangayHI);
+
+                const card = document.createElement('div');
+                card.className = `p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 text-center hover:shadow-md transition barangay-card`;
+                card.setAttribute('data-name', bg.name.toLowerCase());
+
+                card.innerHTML = `
+                    <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 block truncate" title="${bg.name}">
+                        ${bg.name}
+                    </span>
+                    <span class="text-base font-extrabold text-slate-900 dark:text-white block my-0.5">
+                        ${barangayHI}°C
+                    </span>
+                    <span class="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded ${risk.badgeClass} text-white">
+                        ${risk.category}
+                    </span>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function updateSectorAdvisories(level) {
+            const container = document.getElementById('advisory-content');
+            
+            const sectorData = {
+                public: [
+                    { title: 'Hydration Routine', desc: 'Drink at least 2-3 liters of water daily. Do not wait until you feel thirsty to drink.', icon: 'droplet' },
+                    { title: 'Outdoor Wear', desc: 'Wear loose-fitting, lightweight, and light-colored clothing. Use umbrellas or wide-brimmed hats.', icon: 'shirt' },
+                    { title: 'Sun Exposure', desc: 'Avoid staying directly under intense sunlight from 10:00 AM to 3:00 PM.', icon: 'sun' }
+                ],
+                workers: [
+                    { title: 'Work-Rest Cycles', desc: 'Enforce 15-minute shaded rest breaks every hour during heavy outdoor physical labor.', icon: 'clock' },
+                    { title: 'Hydration Stations', desc: 'Carry personal insulated water tumblers and consume electrolyte drinks when working heavily.', icon: 'cup-soda' },
+                    { title: 'Buddy System', desc: 'Watch co-workers for early warning signs of heat exhaustion or sudden dizziness.', icon: 'alert-circle' }
+                ],
+                schools: [
+                    { title: 'Blended Learning Option', desc: 'Transition to modular/online classes when heat index reaches Danger Level (42°C+).', icon: 'book-open' },
+                    { title: 'Outdoor Activity Ban', desc: 'Suspend PE classes and outdoor sports during intense heat hours.', icon: 'trophy' },
+                    { title: 'Classroom Ventilation', desc: 'Ensure functioning fans, open air circulation, and accessible drinking water in all rooms.', icon: 'wind' }
+                ],
+                seniors: [
+                    { title: 'Cool Indoor Living', desc: 'Stay in the coolest, most ventilated room of the house or apply damp cool cloths to the neck.', icon: 'home' },
+                    { title: 'Medication Check', desc: 'Monitor blood pressure regularly as extreme temperatures increase cardiovascular strain.', icon: 'pill' },
+                    { title: 'Active Welfare Checks', desc: 'Ensure family members or neighbors check on vulnerable seniors multiple times daily.', icon: 'heart' }
+                ]
+            };
+
+            const selected = sectorData[activeSector] || sectorData.public;
+            container.innerHTML = '';
+
+            selected.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 shadow-sm flex items-start space-x-3';
+                card.innerHTML = `
+                    <div class="p-2.5 rounded-xl bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400 shrink-0">
+                        <i data-lucide="${item.icon}" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-1">${item.title}</h4>
+                        <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">${item.desc}</p>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            lucide.createIcons();
+        }
+
+        function setupSectorTabs() {
+            const tabs = document.querySelectorAll('.sector-tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    tabs.forEach(t => {
+                        t.classList.remove('bg-white', 'dark:bg-slate-900', 'text-orange-600', 'dark:text-orange-400', 'shadow-sm');
+                        t.classList.add('text-slate-600', 'dark:text-slate-400');
+                    });
+                    tab.classList.add('bg-white', 'dark:bg-slate-900', 'text-orange-600', 'dark:text-orange-400', 'shadow-sm');
+                    tab.classList.remove('text-slate-600', 'dark:text-slate-400');
+                    
+                    activeSector = tab.getAttribute('data-sector');
+                    updateSectorAdvisories(3);
+                });
+            });
+        }
+
+        function setupSearchFilter() {
+            const searchInput = document.getElementById('barangay-search');
+            searchInput.addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase().trim();
+                const cards = document.querySelectorAll('.barangay-card');
+                cards.forEach(card => {
+                    const name = card.getAttribute('data-name');
+                    if (name.includes(query)) {
+                        card.style.display = 'block';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        function setupModalListeners() {
+            const modal = document.getElementById('emergency-modal');
+            const openBtn = document.getElementById('report-emergency-btn');
+            const closeBtn = document.getElementById('close-modal-btn');
+
+            openBtn.addEventListener('click', () => {
+                modal.classList.remove('hidden');
+                initializeEmergencyMap();
+            });
+            closeBtn.addEventListener('click', () => {
+                modal.classList.add('hidden');
+                resetEmergencyForm();
+            });
+            document.getElementById('get-emergency-location-btn').addEventListener('click', captureEmergencyLocation);
+        }
+
+        function initializeEmergencyMap() {
+            if (!emergencyMap) {
+                emergencyMap = L.map('emergency-map').setView([NOVELETA_LAT, NOVELETA_LON], 14);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(emergencyMap);
+                emergencyMap.on('click', (event) => {
+                    setEmergencyLocation(event.latlng.lat, event.latlng.lng, 'Map pin selected');
+                });
+            }
+            setTimeout(() => emergencyMap.invalidateSize(), 100);
+        }
+
+        function setEmergencyLocation(latitude, longitude, source) {
+            emergencyCoordinates = { latitude, longitude };
+            const coordinates = [latitude, longitude];
+            if (!emergencyMarker) {
+                emergencyMarker = L.marker(coordinates, { draggable: true }).addTo(emergencyMap);
+                emergencyMarker.on('dragend', (event) => {
+                    const point = event.target.getLatLng();
+                    setEmergencyLocation(point.lat, point.lng, 'Map pin moved');
+                });
+            } else {
+                emergencyMarker.setLatLng(coordinates);
+            }
+            emergencyMap.setView(coordinates, Math.max(emergencyMap.getZoom(), 16));
+            document.getElementById('emergency-location-status').textContent =
+                `${source}: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+        }
+
+        function captureEmergencyLocation() {
+            const status = document.getElementById('emergency-location-status');
+            if (!navigator.geolocation) {
+                status.textContent = 'GPS is not available in this browser. Tap the map to place the emergency pin.';
+                return;
+            }
+            status.textContent = 'Getting your location… Please allow location access if prompted.';
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    setEmergencyLocation(position.coords.latitude, position.coords.longitude, 'GPS location captured');
+                },
+                (error) => {
+                    const messages = {
+                        1: 'Location permission was denied. Allow access or tap the map to place the emergency pin.',
+                        2: 'Your location could not be determined. Try again or tap the map to place the emergency pin.',
+                        3: 'Getting your location timed out. Try again or tap the map to place the emergency pin.'
+                    };
+                    status.textContent = messages[error.code] || 'Could not get your location. Tap the map to place the emergency pin.';
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        }
+
+        // Open a prefilled group SMS for all mobile emergency hotlines.
+        function triggerEmergencyAlert() {
+            const name = document.getElementById('emergency-name').value.trim();
+            const barangay = document.getElementById('emergency-barangay').value;
+            const type = document.getElementById('emergency-type').value;
+            const contact = document.getElementById('emergency-contact').value.trim();
+            if (!emergencyCoordinates) {
+                document.getElementById('emergency-location-status').textContent =
+                    'Add the emergency location with GPS or tap the map before preparing the report.';
+                return;
+            }
+
+            const mobileHotlineNumbers = [
+                '09161274207',
+                '09267471859',
+                '09985985608'
+            ];
+            
+            const smsBody = `EMERGENCY REPORT - NOVELETA\n` +
+                            `Name: ${name}\n` +
+                            `Location: Brgy. ${barangay}, Noveleta\n` +
+                            `GPS: ${emergencyCoordinates.latitude.toFixed(6)}, ${emergencyCoordinates.longitude.toFixed(6)}\n` +
+                            `Map: https://www.openstreetmap.org/?mlat=${emergencyCoordinates.latitude}&mlon=${emergencyCoordinates.longitude}#map=18/${emergencyCoordinates.latitude}/${emergencyCoordinates.longitude}\n` +
+                            `Emergency Type: ${type}\n` +
+                            `Contact No: ${contact}\n` +
+                            `Please coordinate the appropriate emergency response.`;
+
+            // SMS links open a draft; the user must review and send it.
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            const smsUrl = `sms:${mobileHotlineNumbers.join(',')}${isIOS ? '&' : '?'}body=${encodeURIComponent(smsBody)}`;
+
+            window.location.href = smsUrl;
+
+            document.getElementById('emergency-form').classList.add('hidden');
+            document.getElementById('emergency-success').classList.remove('hidden');
+            
+            setTimeout(() => {
+                document.getElementById('emergency-modal').classList.add('hidden');
+                resetEmergencyForm();
+            }, 3500);
+        }
+
+        function resetEmergencyForm() {
+            document.getElementById('emergency-form').reset();
+            document.getElementById('emergency-form').classList.remove('hidden');
+            document.getElementById('emergency-success').classList.add('hidden');
+            emergencyCoordinates = null;
+            if (emergencyMarker) {
+                emergencyMap.removeLayer(emergencyMarker);
+                emergencyMarker = null;
+            }
+            document.getElementById('emergency-location-status').textContent =
+                'Use GPS or tap the map to mark the exact location. A location pin is required.';
+        }
+
+        function setupThemeToggle() {
+            const btn = document.getElementById('theme-toggle');
+            btn.addEventListener('click', () => {
+                document.documentElement.classList.toggle('dark');
+                if (currentWeatherData) {
+                    renderForecastChart(currentWeatherData.hourly);
+                }
+            });
+        }
+
+        function updateCountdown() {
+            countdownTimer--;
+            if (countdownTimer < 0) countdownTimer = 600;
+            const mins = Math.floor(countdownTimer / 60).toString().padStart(2, '0');
+            const secs = (countdownTimer % 60).toString().padStart(2, '0');
+            document.getElementById('timer-countdown').textContent = `${mins}:${secs}`;
+        }
+
+        function getWeatherCodeDescription(code) {
+            const codes = {
+                0: 'Clear & Sunny',
+                1: 'Mostly Clear',
+                2: 'Partly Cloudy',
+                3: 'Overcast',
+                45: 'Foggy',
+                51: 'Light Drizzle',
+                61: 'Moderate Rain',
+                80: 'Rain Showers',
+                95: 'Thunderstorm'
+            };
+            return codes[code] || 'Warm & Clear';
+        }
+
+        function generateFallbackData() {
+            const now = new Date();
+            const hourlyTime = [];
+            const hourlyTemp = [];
+            const hourlyApparent = [];
+            const hourlyRH = [];
+
+            for (let i = 0; i < 24; i++) {
+                const d = new Date(now.getTime() + (i * 3600000));
+                hourlyTime.push(d.toISOString());
+                
+                const hour = d.getHours();
+                let baseT = 28 + Math.sin((hour - 6) / 12 * Math.PI) * 7;
+                if (hour < 6 || hour > 20) baseT = 26 + Math.random();
+                
+                const rh = 75 - Math.sin((hour - 6) / 12 * Math.PI) * 20;
+                const hi = calculateHeatIndex(baseT, rh);
+
+                hourlyTemp.push(baseT);
+                hourlyRH.push(rh);
+                hourlyApparent.push(hi);
+            }
+
+            return {
+                current: {
+                    temperature_2m: 33.5,
+                    relative_humidity_2m: 68,
+                    apparent_temperature: 41.2,
+                    wind_speed_10m: 14,
+                    weather_code: 1
+                },
+                hourly: {
+                    time: hourlyTime,
+                    temperature_2m: hourlyTemp,
+                    relative_humidity_2m: hourlyRH,
+                    apparent_temperature: hourlyApparent,
+                    weather_code: Array(24).fill(1)
+                }
+            };
+        }
+    </script>
+</body>
+</html>

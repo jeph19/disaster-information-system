@@ -44,6 +44,11 @@ jobs:
       - name: Add SPA fallback
         run: cp artifacts/disaster-information-system/dist/public/index.html artifacts/disaster-information-system/dist/public/404.html
 
+      - name: Add standalone heat index page
+        run: |
+          mkdir -p artifacts/disaster-information-system/dist/public/heat-index
+          cp heat-index/index.html artifacts/disaster-information-system/dist/public/heat-index/index.html
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

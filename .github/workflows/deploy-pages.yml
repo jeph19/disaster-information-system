@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate heat index guide coverage
+        run: node scripts/validate-heat-index-guide.mjs
+
       - name: Build frontend
         env:
           PORT: 5173
@@ -44,10 +47,10 @@ jobs:
       - name: Add SPA fallback
         run: cp artifacts/disaster-information-system/dist/public/index.html artifacts/disaster-information-system/dist/public/404.html
 
-      - name: Add standalone heat index page
+      - name: Add standalone heat index app and guide
         run: |
           mkdir -p artifacts/disaster-information-system/dist/public/heat-index
-          cp heat-index/index.html artifacts/disaster-information-system/dist/public/heat-index/index.html
+          cp heat-index/index.html heat-index/guide.html heat-index/guide-content.js artifacts/disaster-information-system/dist/public/heat-index/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

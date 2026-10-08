@@ -41,6 +41,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="./guide-content.js"></script>
 
     <style>
         body {
@@ -87,6 +88,35 @@
             background: rgba(156, 163, 175, 0.5);
             border-radius: 9999px;
         }
+        .guide-section {
+            padding: 1rem;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            border-radius: 0.75rem;
+        }
+        .dark .guide-section {
+            border-color: rgba(71, 85, 105, 0.7);
+        }
+        .guide-section h2 {
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+            font-weight: 700;
+        }
+        .guide-section p,
+        .guide-section ol {
+            color: #475569;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+        .dark .guide-section p,
+        .dark .guide-section ol {
+            color: #cbd5e1;
+        }
+        .guide-note {
+            margin-top: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            border-left: 3px solid #f97316;
+            background: rgba(249, 115, 22, 0.08);
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col">
@@ -113,13 +143,16 @@
             </div>
 
             <div class="flex items-center space-x-2 sm:space-x-3">
-                <button id="theme-toggle" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Toggle Theme">
+                <button id="theme-toggle" data-guide-control="theme-toggle" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Toggle Theme">
                     <i data-lucide="moon" class="w-5 h-5 dark:hidden"></i>
                     <i data-lucide="sun" class="w-5 h-5 hidden dark:block"></i>
                 </button>
-                <button id="refresh-btn" class="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs sm:text-sm shadow-md transition active:scale-95">
+                <button id="refresh-btn" data-guide-control="refresh-btn" class="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs sm:text-sm shadow-md transition active:scale-95">
                     <i data-lucide="refresh-cw" id="refresh-icon" class="w-4 h-4"></i>
                     <span class="hidden sm:inline">Refresh Data</span>
+                </button>
+                <button id="help-guide-btn" data-guide-control="help-guide-btn" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Open app guide" aria-label="Open app guide">
+                    <i data-lucide="circle-help" class="w-5 h-5"></i>
                 </button>
             </div>
         </div>
@@ -365,7 +398,7 @@
                     </p>
                 </div>
                 <div class="w-full sm:w-auto">
-                    <input type="text" id="barangay-search" placeholder="Search barangay..." class="w-full sm:w-48 px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500">
+                    <input type="text" id="barangay-search" data-guide-control="barangay-search" placeholder="Search barangay..." class="w-full sm:w-48 px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500">
                 </div>
             </div>
 
@@ -388,16 +421,16 @@
 
                 <!-- Sector Tabs -->
                 <div class="flex flex-wrap gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                    <button class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition active-tab bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-sm" data-sector="public">
+                    <button id="sector-public" data-guide-control="sector-public" class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition active-tab bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-sm" data-sector="public">
                         <i data-lucide="users" class="w-3.5 h-3.5 inline mr-1"></i> General Public
                     </button>
-                    <button class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition" data-sector="workers">
+                    <button id="sector-workers" data-guide-control="sector-workers" class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition" data-sector="workers">
                         <i data-lucide="hard-hat" class="w-3.5 h-3.5 inline mr-1"></i> Outdoor Workers
                     </button>
-                    <button class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition" data-sector="schools">
+                    <button id="sector-schools" data-guide-control="sector-schools" class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition" data-sector="schools">
                         <i data-lucide="graduation-cap" class="w-3.5 h-3.5 inline mr-1"></i> Schools & Youth
                     </button>
-                    <button class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition" data-sector="seniors">
+                    <button id="sector-seniors" data-guide-control="sector-seniors" class="sector-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition" data-sector="seniors">
                         <i data-lucide="heart-pulse" class="w-3.5 h-3.5 inline mr-1"></i> Seniors & Vulnerable
                     </button>
                 </div>
@@ -467,14 +500,14 @@
                         Direct response contacts for accidents, heat emergencies, or disaster assistance.
                     </p>
                 </div>
-                <button id="report-emergency-btn" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 transition active:scale-95">
+                <button id="report-emergency-btn" data-guide-control="report-emergency-btn" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 transition active:scale-95">
                     <i data-lucide="bell-ring" class="w-4 h-4 animate-bounce"></i> Report Emergency
                 </button>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <!-- MDRRMO Hotline -->
-                <a href="tel:09161274207" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-orange-500 transition flex items-center space-x-3 group">
+                <a href="tel:09161274207" data-guide-control="hotline-mdrrmo" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-orange-500 transition flex items-center space-x-3 group">
                     <div class="p-3 rounded-xl bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400 group-hover:scale-110 transition">
                         <i data-lucide="shield-check" class="w-5 h-5"></i>
                     </div>
@@ -486,7 +519,7 @@
                 </a>
 
                 <!-- BFP Noveleta -->
-                <a href="tel:09267471859" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-red-500 transition flex items-center space-x-3 group">
+                <a href="tel:09267471859" data-guide-control="hotline-bfp" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-red-500 transition flex items-center space-x-3 group">
                     <div class="p-3 rounded-xl bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400 group-hover:scale-110 transition">
                         <i data-lucide="flame" class="w-5 h-5"></i>
                     </div>
@@ -498,7 +531,7 @@
                 </a>
 
                 <!-- PNP Noveleta -->
-                <a href="tel:09985985608" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-blue-500 transition flex items-center space-x-3 group">
+                <a href="tel:09985985608" data-guide-control="hotline-pnp" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-blue-500 transition flex items-center space-x-3 group">
                     <div class="p-3 rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400 group-hover:scale-110 transition">
                         <i data-lucide="badge-check" class="w-5 h-5"></i>
                     </div>
@@ -510,7 +543,7 @@
                 </a>
 
                 <!-- Health Office / RHU -->
-                <a href="tel:0464381200" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-emerald-500 transition flex items-center space-x-3 group">
+                <a href="tel:0464381200" data-guide-control="hotline-health-office" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-emerald-500 transition flex items-center space-x-3 group">
                     <div class="p-3 rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400 group-hover:scale-110 transition">
                         <i data-lucide="hospital" class="w-5 h-5"></i>
                     </div>
@@ -540,10 +573,27 @@
         </div>
     </footer>
 
+    <div id="guide-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="guide-modal-title">
+        <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 border border-slate-200 dark:border-slate-800 shadow-2xl relative">
+            <div class="flex items-start justify-between gap-4 mb-5">
+                <div>
+                    <h2 id="guide-modal-title" class="text-xl font-bold text-slate-900 dark:text-white">Heat Index Dashboard Guide</h2>
+                    <p class="text-sm text-slate-500 dark:text-slate-400">Functions, capabilities, and step-by-step instructions.</p>
+                </div>
+                <button id="close-guide-btn" data-guide-control="close-guide-btn" type="button" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close guide">×</button>
+            </div>
+            <div class="mb-5 flex flex-wrap gap-3 text-sm">
+                <a href="./guide.html" target="_blank" rel="noopener" class="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 font-semibold text-white hover:bg-orange-700">Open printable guide</a>
+                <span class="self-center text-slate-500 dark:text-slate-400">For a paper copy, choose Print in the guide page or your browser.</span>
+            </div>
+            <div id="guide-content" class="space-y-5"></div>
+        </div>
+    </div>
+
     <!-- Emergency Report Modal -->
     <div id="emergency-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden">
         <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 border border-slate-200 dark:border-slate-800 shadow-2xl relative">
-            <button id="close-modal-btn" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white">
+            <button id="close-modal-btn" data-guide-control="close-emergency-btn" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
             <div class="flex items-center space-x-3 mb-4">
@@ -559,11 +609,11 @@
             <form id="emergency-form" class="space-y-3" onsubmit="event.preventDefault(); triggerEmergencyAlert();">
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Reporter's Name</label>
-                    <input type="text" id="emergency-name" required placeholder="Full Name" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <input type="text" id="emergency-name" data-guide-control="emergency-name" required placeholder="Full Name" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Location / Barangay in Noveleta</label>
-                    <select id="emergency-barangay" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <select id="emergency-barangay" data-guide-control="emergency-barangay" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
                         <option value="">Select Barangay...</option>
                         <option value="Magdiwang">Magdiwang</option>
                         <option value="Poblacion">Poblacion</option>
@@ -586,16 +636,16 @@
                 <div class="space-y-2">
                     <div class="flex items-center justify-between gap-2">
                         <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">Pin the emergency location</label>
-                        <button type="button" id="get-emergency-location-btn" class="shrink-0 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition flex items-center gap-1.5">
+                        <button type="button" id="get-emergency-location-btn" data-guide-control="get-emergency-location-btn" class="shrink-0 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition flex items-center gap-1.5">
                             <i data-lucide="locate-fixed" class="w-4 h-4"></i> Use my GPS
                         </button>
                     </div>
                     <p id="emergency-location-status" role="status" aria-live="polite" class="text-xs text-slate-500 dark:text-slate-400">Use GPS or tap the map to mark the exact location. A location pin is required.</p>
-                    <div id="emergency-map" class="h-52 rounded-xl border border-slate-300 dark:border-slate-700 overflow-hidden" aria-label="Map for selecting the emergency location"></div>
+                    <div id="emergency-map" data-guide-control="emergency-map" class="h-52 rounded-xl border border-slate-300 dark:border-slate-700 overflow-hidden" aria-label="Map for selecting the emergency location"></div>
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Type of Emergency</label>
-                    <select id="emergency-type" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <select id="emergency-type" data-guide-control="emergency-type" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
                         <option value="Heat Collapse / Stroke">Heat Collapse / Heat Stroke</option>
                         <option value="Vehicular / Road Accident">Vehicular / Road Accident</option>
                         <option value="Ambulance Assistance Needed">Ambulance Assistance Needed</option>
@@ -604,10 +654,10 @@
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Contact Number</label>
-                    <input type="tel" id="emergency-contact" required placeholder="09XX-XXX-XXXX" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <input type="tel" id="emergency-contact" data-guide-control="emergency-contact" required placeholder="09XX-XXX-XXXX" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500">
                 </div>
                 <div class="pt-2">
-                    <button type="submit" class="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-lg transition flex items-center justify-center gap-2">
+                    <button id="prepare-emergency-sms-btn" data-guide-control="prepare-emergency-sms-btn" type="submit" class="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-lg transition flex items-center justify-center gap-2">
                         <i data-lucide="send" class="w-4 h-4"></i> Prepare SMS for All Mobile Hotlines
                     </button>
                 </div>
@@ -621,7 +671,7 @@
                     Review the draft and tap Send in your messaging app to notify MDRRMO, BFP, and PNP.
                     The Municipal Health Office number is a landline and cannot receive SMS.
                 </p>
-                <a href="tel:0464381200" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
+                <a href="tel:0464381200" data-guide-control="hotline-health-office-success" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
                     <i data-lucide="phone" class="w-4 h-4"></i> Call Municipal Health Office: (046) 438-1200
                 </a>
             </div>
@@ -661,12 +711,35 @@
         let emergencyMarker = null;
         let emergencyCoordinates = null;
 
+        function setupUserGuide() {
+            const modal = document.getElementById('guide-modal');
+            const openButton = document.getElementById('help-guide-btn');
+            const closeButton = document.getElementById('close-guide-btn');
+            const closeGuide = () => {
+                modal.classList.add('hidden');
+                openButton.focus();
+            };
+            openButton.addEventListener('click', () => {
+                modal.classList.remove('hidden');
+                closeButton.focus();
+            });
+            closeButton.addEventListener('click', closeGuide);
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) closeGuide();
+            });
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeGuide();
+            });
+            window.renderHeatIndexGuide(document.getElementById('guide-content'));
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
             setupThemeToggle();
             setupSectorTabs();
             setupModalListeners();
             setupSearchFilter();
+            setupUserGuide();
             
             // Initial data fetch
             fetchWeatherData();

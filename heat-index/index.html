@@ -98,18 +98,13 @@
         .heat-map-temperature-label::before {
             display: none !important;
         }
-        .reporting-party-map-icon {
-            border: 0;
-            background: transparent;
-        }
-        .reporting-party-map-icon span {
-            display: block;
-            width: 18px;
-            height: 18px;
-            border: 3px solid #fff;
-            border-radius: 50%;
-            background: #2563eb;
-            box-shadow: 0 1px 5px rgba(15, 23, 42, 0.8);
+        .reporting-party-map-label {
+            border: 0 !important;
+            background: #1d4ed8 !important;
+            color: #fff !important;
+            font-size: 10px !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.04em;
         }
     </style>
 </head>
@@ -557,13 +552,13 @@
                 </a>
 
                 <!-- Health Office / RHU -->
-                <a href="tel:0464381200" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-emerald-500 transition flex items-center space-x-3 group">
+                <a href="tel:09704432815" class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 hover:border-emerald-500 transition flex items-center space-x-3 group">
                     <div class="p-3 rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400 group-hover:scale-110 transition">
                         <i data-lucide="hospital" class="w-5 h-5"></i>
                     </div>
                     <div>
                         <span class="text-xs text-slate-500 dark:text-slate-400 block font-medium">Municipal Health Office</span>
-                        <span class="text-sm font-extrabold text-slate-900 dark:text-white block">(046) 438-1200</span>
+                        <span class="text-sm font-extrabold text-slate-900 dark:text-white block">0970 443 2815</span>
                         <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">RHU Medical Station</span>
                     </div>
                 </a>
@@ -642,6 +637,9 @@
                         Reporting party coordinates:
                         <output id="emergency-coordinate-display" aria-live="polite">Not set</output>
                     </p>
+                    <button type="button" id="show-report-location-btn" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-800 text-white text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50" disabled>
+                        View on barangay map
+                    </button>
                     <div id="emergency-map" class="h-52 rounded-xl border border-slate-300 dark:border-slate-700 overflow-hidden" aria-label="Map for selecting the emergency location"></div>
                 </div>
                 <div>
@@ -669,12 +667,11 @@
                 </div>
                 <h4 class="font-bold text-slate-900 dark:text-white text-sm">SMS Draft Ready</h4>
                 <p class="text-xs text-slate-500 dark:text-slate-400">
-                    Review the draft and tap Send in your messaging app to notify MDRRMO, BFP, and PNP.
-                    The Municipal Health Office number is a landline and cannot receive SMS.
-                    The reporting party's coordinates remain visible on the map in the app and are not included in the SMS.
+                    Review the draft and tap Send in your messaging app to notify MDRRMO, BFP, PNP, and the Municipal Health Office.
+                    The reporting party's coordinates remain visible on both maps in the app and are not included in the SMS.
                 </p>
-                <a href="tel:0464381200" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
-                    <i data-lucide="phone" class="w-4 h-4"></i> Call Municipal Health Office: (046) 438-1200
+                <a href="tel:09704432815" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
+                    <i data-lucide="phone" class="w-4 h-4"></i> Municipal Health Office: 0970 443 2815
                 </a>
             </div>
         </div>
@@ -1191,6 +1188,7 @@
                 resetEmergencyForm();
             });
             document.getElementById('get-emergency-location-btn').addEventListener('click', captureEmergencyLocation);
+            document.getElementById('show-report-location-btn').addEventListener('click', showReportingPartyOnBarangayMap);
         }
 
         function initializeEmergencyMap() {
@@ -1219,11 +1217,24 @@
             } else {
                 emergencyMarker.setLatLng(coordinates);
             }
+            emergencyMarker.bindPopup(createReportingPartyPopup(coordinates)).openPopup();
             emergencyMap.setView(coordinates, Math.max(emergencyMap.getZoom(), 16));
+            emergencyMap.panTo(coordinates);
             document.getElementById('emergency-location-status').textContent = source;
             document.getElementById('emergency-coordinate-display').textContent =
                 `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+            document.getElementById('show-report-location-btn').disabled = false;
             updateReportingPartyHeatMapMarker(coordinates);
+        }
+
+        function createReportingPartyPopup(coordinates) {
+            const popup = document.createElement('div');
+            const title = document.createElement('strong');
+            title.textContent = 'Reporting party location';
+            const point = document.createElement('div');
+            point.textContent = `Coordinates: ${coordinates[0].toFixed(6)}, ${coordinates[1].toFixed(6)}`;
+            popup.append(title, point);
+            return popup;
         }
 
         function updateReportingPartyHeatMapMarker(coordinates) {
@@ -1236,29 +1247,50 @@
             ]);
 
             if (!reportingPartyMapMarker) {
-                const icon = L.divIcon({
-                    className: 'reporting-party-map-icon',
-                    html: '<span></span>',
-                    iconSize: [24, 24],
-                    iconAnchor: [12, 12]
-                });
-                reportingPartyMapMarker = L.marker(coordinates, {
-                    icon,
-                    title: 'Reporting party location',
-                    alt: 'Reporting party location'
+                reportingPartyMapMarker = L.circleMarker(coordinates, {
+                    radius: 13,
+                    color: '#ffffff',
+                    weight: 4,
+                    fillColor: '#2563eb',
+                    fillOpacity: 1,
+                    bubblingMouseEvents: false
                 }).addTo(barangayHeatMap);
             } else {
                 reportingPartyMapMarker.setLatLng(coordinates);
             }
 
-            const popup = document.createElement('div');
-            const title = document.createElement('strong');
-            title.textContent = 'Reporting party location';
-            const point = document.createElement('div');
-            point.textContent = `Coordinates: ${coordinates[0].toFixed(6)}, ${coordinates[1].toFixed(6)}`;
-            popup.append(title, point);
-            reportingPartyMapMarker.bindPopup(popup);
-            barangayHeatMap.fitBounds(bounds.pad(0.08), { maxZoom: 15 });
+            reportingPartyMapMarker
+                .bindPopup(createReportingPartyPopup(coordinates))
+                .bindTooltip('REPORTING PARTY', {
+                    permanent: true,
+                    direction: 'top',
+                    offset: [0, -12],
+                    className: 'reporting-party-map-label'
+                })
+                .bringToFront()
+                .openPopup();
+            barangayHeatMap.fitBounds(bounds.pad(0.08), { maxZoom: 15, animate: false });
+        }
+
+        function showReportingPartyOnBarangayMap() {
+            if (!emergencyCoordinates || !reportingPartyMapMarker) {
+                document.getElementById('emergency-location-status').textContent =
+                    'Capture GPS or place a map pin before opening the reporting-party location.';
+                return;
+            }
+
+            document.getElementById('emergency-modal').classList.add('hidden');
+            const mapContainer = document.getElementById('barangay-heat-map');
+            mapContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => {
+                barangayHeatMap.invalidateSize();
+                barangayHeatMap.setView(
+                    [emergencyCoordinates.latitude, emergencyCoordinates.longitude],
+                    16,
+                    { animate: false }
+                );
+                reportingPartyMapMarker.openPopup();
+            }, 250);
         }
 
         function captureEmergencyLocation() {
@@ -1299,7 +1331,8 @@
             const mobileHotlineNumbers = [
                 '09161274207',
                 '09267471859',
-                '09985985608'
+                '09985985608',
+                '09704432815'
             ];
             
             const smsBody = `EMERGENCY REPORT - NOVELETA\n` +
@@ -1344,6 +1377,7 @@
             document.getElementById('emergency-location-status').textContent =
                 'Use GPS or tap the map to mark the exact location. A location pin is required.';
             document.getElementById('emergency-coordinate-display').textContent = 'Not set';
+            document.getElementById('show-report-location-btn').disabled = true;
         }
 
         function setupThemeToggle() {

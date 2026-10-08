@@ -87,6 +87,30 @@
             background: rgba(156, 163, 175, 0.5);
             border-radius: 9999px;
         }
+        .heat-map-temperature-label {
+            border: 0 !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            color: #fff !important;
+            font-weight: 800 !important;
+            text-shadow: 0 1px 3px #111827, 0 0 2px #111827;
+        }
+        .heat-map-temperature-label::before {
+            display: none !important;
+        }
+        .reporting-party-map-icon {
+            border: 0;
+            background: transparent;
+        }
+        .reporting-party-map-icon span {
+            display: block;
+            width: 18px;
+            height: 18px;
+            border: 3px solid #fff;
+            border-radius: 50%;
+            background: #2563eb;
+            box-shadow: 0 1px 5px rgba(15, 23, 42, 0.8);
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col">
@@ -372,6 +396,29 @@
             <div id="barangay-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3">
                 <!-- Dynamically populated via JS -->
             </div>
+        </div>
+
+        <div class="glass-card rounded-2xl p-5 sm:p-6 shadow-sm">
+            <div class="mb-4">
+                <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <i data-lucide="map" class="w-5 h-5 text-orange-500"></i> Barangay Heat Index &amp; Reporting Party Map
+                </h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Select a temperature marker for its estimated heat index and risk level. A reporting-party pin appears here after GPS capture or map selection in Report Emergency and remains after preparing the SMS draft until the page is reloaded or another report is cancelled.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 text-xs text-slate-600 dark:text-slate-300">
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-green-500"></span> Safe</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-yellow-500"></span> Caution</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-orange-500"></span> Extreme Caution</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-red-500"></span> Danger</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-rose-900"></span> Extreme Danger</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-blue-600 border-2 border-white shadow"></span> Reporting party</span>
+            </div>
+            <div id="barangay-heat-map" class="h-80 sm:h-96 rounded-xl border border-slate-300 dark:border-slate-700 overflow-hidden" role="application" aria-label="Map of estimated heat index by barangay and reporting-party location"></div>
+            <p id="barangay-map-note" class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Heat values are estimates, not readings from individual barangay sensors. Barangay markers use approximate OpenStreetMap place locations, not official boundary centroids. Santa Isabel does not currently have a verified Noveleta point in the map data, so its temperature remains in the list above rather than appearing at a guessed location. Map tiles and place names © OpenStreetMap contributors.
+            </p>
         </div>
 
         <!-- Sector-Specific Advisories Section -->
@@ -665,6 +712,28 @@
         let emergencyMap = null;
         let emergencyMarker = null;
         let emergencyCoordinates = null;
+        let barangayHeatMap = null;
+        let barangayHeatLayer = null;
+        let reportingPartyMapMarker = null;
+        let currentBarangayHeatIndex = null;
+
+        const BARANGAY_MAP_LOCATIONS = {
+            'Magdiwang': [14.4318379, 120.8852602],
+            'Poblacion': [14.4278759, 120.8801134],
+            'Salcedo I': [14.4273369, 120.8776931],
+            'Salcedo II': [14.4259009, 120.8739824],
+            'San Antonio': [14.4250717, 120.8840697],
+            'San Jose I': [14.4287493, 120.8839520],
+            'San Jose II': [14.4310969, 120.8860298],
+            'San Juan I': [14.4334237, 120.8859941],
+            'San Juan II': [14.4374739, 120.8853659],
+            'San Rafael I': [14.4297832, 120.8793678],
+            'San Rafael II': [14.4317446, 120.8788750],
+            'San Rafael III': [14.4348692, 120.8780837],
+            'San Rafael IV': [14.4490085, 120.8799700],
+            'Santa Rosa I': [14.4249769, 120.8811522],
+            'Santa Rosa II': [14.4210441, 120.8839738]
+        };
 
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
@@ -672,6 +741,7 @@
             setupSectorTabs();
             setupModalListeners();
             setupSearchFilter();
+            initializeBarangayHeatMap();
             
             // Initial data fetch
             fetchWeatherData();
@@ -935,8 +1005,7 @@
             grid.innerHTML = '';
 
             BARANGAYS.forEach(bg => {
-                const variance = bg.coastal ? 1 : 0;
-                const barangayHI = baseHI + variance;
+                const barangayHI = getBarangayHeatIndex(baseHI, bg);
                 const risk = getRiskLevel(barangayHI);
 
                 const card = document.createElement('div');
@@ -955,6 +1024,72 @@
                     </span>
                 `;
                 grid.appendChild(card);
+            });
+
+            renderBarangayHeatMap(baseHI, document.getElementById('barangay-search').value);
+        }
+
+        function getBarangayHeatIndex(baseHeatIndex, barangay) {
+            return baseHeatIndex + (barangay.coastal ? 1 : 0);
+        }
+
+        function getRiskMapColor(heatIndex) {
+            if (heatIndex < 27) return '#22c55e';
+            if (heatIndex <= 32) return '#eab308';
+            if (heatIndex <= 41) return '#f97316';
+            if (heatIndex <= 51) return '#ef4444';
+            return '#881337';
+        }
+
+        function initializeBarangayHeatMap() {
+            barangayHeatMap = L.map('barangay-heat-map').setView([NOVELETA_LAT, NOVELETA_LON], 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(barangayHeatMap);
+            barangayHeatLayer = L.layerGroup().addTo(barangayHeatMap);
+            if (currentBarangayHeatIndex !== null) {
+                renderBarangayHeatMap(currentBarangayHeatIndex);
+            }
+        }
+
+        function renderBarangayHeatMap(baseHeatIndex, query = '') {
+            currentBarangayHeatIndex = baseHeatIndex;
+            if (!barangayHeatMap || !barangayHeatLayer) return;
+
+            barangayHeatLayer.clearLayers();
+            const normalizedQuery = query.toLowerCase().trim();
+            BARANGAYS.forEach((barangay) => {
+                if (!barangay.name.toLowerCase().includes(normalizedQuery)) return;
+
+                const location = BARANGAY_MAP_LOCATIONS[barangay.name];
+                if (!location) return;
+
+                const heatIndex = getBarangayHeatIndex(baseHeatIndex, barangay);
+                const risk = getRiskLevel(heatIndex);
+                const popup = document.createElement('div');
+                const name = document.createElement('strong');
+                name.textContent = barangay.name;
+                const reading = document.createElement('div');
+                reading.textContent = `Estimated heat index: ${heatIndex}°C`;
+                const category = document.createElement('div');
+                category.textContent = `Risk: ${risk.category}`;
+                popup.append(name, reading, category);
+
+                L.circleMarker(location, {
+                    radius: 10,
+                    color: '#ffffff',
+                    weight: 2,
+                    fillColor: getRiskMapColor(heatIndex),
+                    fillOpacity: 0.95
+                })
+                    .bindPopup(popup)
+                    .bindTooltip(`${heatIndex}°C`, {
+                        permanent: true,
+                        direction: 'center',
+                        className: 'heat-map-temperature-label'
+                    })
+                    .addTo(barangayHeatLayer);
             });
         }
 
@@ -1035,6 +1170,9 @@
                         card.style.display = 'none';
                     }
                 });
+                if (currentBarangayHeatIndex !== null) {
+                    renderBarangayHeatMap(currentBarangayHeatIndex, query);
+                }
             });
         }
 
@@ -1084,6 +1222,42 @@
             document.getElementById('emergency-location-status').textContent = source;
             document.getElementById('emergency-coordinate-display').textContent =
                 `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+            updateReportingPartyHeatMapMarker(coordinates);
+        }
+
+        function updateReportingPartyHeatMapMarker(coordinates) {
+            const location = L.latLng(coordinates[0], coordinates[1]);
+            const bounds = L.latLngBounds([
+                ...Object.values(BARANGAY_MAP_LOCATIONS).map(([latitude, longitude]) =>
+                    L.latLng(latitude, longitude)
+                ),
+                location
+            ]);
+
+            if (!reportingPartyMapMarker) {
+                const icon = L.divIcon({
+                    className: 'reporting-party-map-icon',
+                    html: '<span></span>',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                });
+                reportingPartyMapMarker = L.marker(coordinates, {
+                    icon,
+                    title: 'Reporting party location',
+                    alt: 'Reporting party location'
+                }).addTo(barangayHeatMap);
+            } else {
+                reportingPartyMapMarker.setLatLng(coordinates);
+            }
+
+            const popup = document.createElement('div');
+            const title = document.createElement('strong');
+            title.textContent = 'Reporting party location';
+            const point = document.createElement('div');
+            point.textContent = `Coordinates: ${coordinates[0].toFixed(6)}, ${coordinates[1].toFixed(6)}`;
+            popup.append(title, point);
+            reportingPartyMapMarker.bindPopup(popup);
+            barangayHeatMap.fitBounds(bounds.pad(0.08), { maxZoom: 15 });
         }
 
         function captureEmergencyLocation() {
@@ -1145,11 +1319,11 @@
             
             setTimeout(() => {
                 document.getElementById('emergency-modal').classList.add('hidden');
-                resetEmergencyForm();
+                resetEmergencyForm(true);
             }, 3500);
         }
 
-        function resetEmergencyForm() {
+        function resetEmergencyForm(preserveReportingPartyLocation = false) {
             document.getElementById('emergency-form').reset();
             document.getElementById('emergency-form').classList.remove('hidden');
             document.getElementById('emergency-success').classList.add('hidden');
@@ -1158,6 +1332,14 @@
                 emergencyMap.removeLayer(emergencyMarker);
                 emergencyMarker = null;
             }
+            if (!preserveReportingPartyLocation) {
+                if (reportingPartyMapMarker) {
+                    barangayHeatMap.removeLayer(reportingPartyMapMarker);
+                    reportingPartyMapMarker = null;
+                }
+                barangayHeatMap.setView([NOVELETA_LAT, NOVELETA_LON], 14);
+            }
+            if (emergencyMap) emergencyMap.setView([NOVELETA_LAT, NOVELETA_LON], 14);
             document.getElementById('emergency-location-status').textContent =
                 'Use GPS or tap the map to mark the exact location. A location pin is required.';
             document.getElementById('emergency-coordinate-display').textContent = 'Not set';

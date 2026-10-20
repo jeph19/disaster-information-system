@@ -5,6 +5,7 @@ import {
   getDoc,
   getDocs,
   query as firestoreQuery,
+  runTransaction,
   setDoc,
   serverTimestamp,
   Timestamp,
@@ -29,6 +30,8 @@ export interface Incident {
   id: number; code: string; title: string; incidentType: IncidentType; status: IncidentStatus; severity: Severity;
   location: string; startedAt: string; updatedAt: string; summary: string; affectedPopulation: number;
   evacuatedPopulation: number; deaths: number; injuries: number; missing: number; partiallyDamaged: number; totallyDamaged: number;
+  currentEvacuees?: number; cumulativeEvacuees?: number; evacuationTrackingInitialized?: boolean;
+  lastEvacuationSnapshotAt?: string;
 }
 export interface IncidentInput {
   title: string; incidentType: IncidentType; status: IncidentStatus; severity: Severity; location: string;
@@ -59,19 +62,29 @@ export interface StructureDamageInput {
 export interface IncidentOverview {
   incident: Incident; centers: EvacuationCenter[]; damages: StructureDamage[]; totalCenters: number;
   totalEvacuated: number; totalCapacity: number; totalFamilies: number; totalPartiallyDamaged: number; totalTotallyDamaged: number;
+  evacuationHistory: EvacuationSnapshot[];
 }
 export interface DashboardSummary {
   activeIncidents: number; totalIncidents: number; totalEvacuationCenters: number; totalEvacuated: number;
+  totalCumulativeEvacuees: number; trackedIncidentCount: number;
   totalCapacity: number; totalFamilies: number; partiallyDamaged: number; totallyDamaged: number;
   populationByIncident: { incidentId: number; label: string; population: number }[]; recentIncidents: Incident[];
 }
+export interface EvacuationSnapshot {
+  id: string; incidentId: number; centerId?: number; transferToCenterId?: number;
+  transferFromName?: string; transferToName?: string; transferredCount?: number;
+  currentEvacuees: number; cumulativeEvacuees: number; change: number;
+  changeType: 'created' | 'updated' | 'deleted' | 'transfer' | 'scheduled'; recordedAt: string;
+}
 export interface SituationalReportInput {
   incidentId: number; reportDate: string; preparedBy: string; operationalSummary: string;
-  priorityNeeds: string; actionsTaken: string; nextSteps: string;
+  priorityNeeds: string; actionsTaken: string; nextSteps: string; organization: OrganizationProfile;
 }
 export interface SituationalReport {
-  reportNumber: string; generatedAt: string; reportDate: string; preparedBy: string; incident: Incident;
-  centers: EvacuationCenter[]; damages: StructureDamage[]; photos: IncidentPhoto[]; operationalSummary: string; priorityNeeds: string;
+  id: string; revision: number; reportNumber: string; generatedAt: string; reportDate: string; preparedBy: string;
+  organization: OrganizationProfile; incident: Incident;
+  centers: EvacuationCenter[]; damages: StructureDamage[]; photos: IncidentPhoto[]; evacuationHistory: EvacuationSnapshot[];
+  operationalSummary: string; priorityNeeds: string;
   actionsTaken: string; nextSteps: string;
 }
 export type UserRole = 'Administrator' | 'Coordinator' | 'Viewer';
@@ -84,6 +97,9 @@ const names = {
   incidents: 'disaster_incidents',
   centers: 'disaster_evacuation_centers',
   damages: 'disaster_structure_damages',
+  evacuationHistory: 'disaster_evacuation_snapshots',
+  reports: 'disaster_situational_reports',
+  reportSequences: 'disaster_situational_report_sequences',
   users: 'disaster_users',
   settings: 'disaster_settings',
 } as const;
@@ -100,24 +116,75 @@ const serialize = (value: unknown): unknown => value instanceof Date ? Timestamp
 const dateValue = (value: string | Date) => value instanceof Date ? value : new Date(value);
 const actor = () => ({ changedBy: firebaseAuth.currentUser?.uid ?? 'unknown', changedByName: firebaseAuth.currentUser?.displayName || firebaseAuth.currentUser?.email || 'Unknown user' });
 const writeAudit = (batch: ReturnType<typeof writeBatch>, recordType: string, recordId: number | string, action: AuditLog['action'], incidentId: number, before?: unknown, after?: unknown) => {
+  const entry = auditEntry(recordType, recordId, action, incidentId, before, after);
+  batch.set(entry.ref, entry.data);
+};
+const auditEntry = (recordType: string, recordId: number | string, action: AuditLog['action'], incidentId: number, before?: unknown, after?: unknown) => {
   const current = actor();
-  const auditRef = doc(collection(firestore, 'disaster_audit_logs'));
-  batch.set(auditRef, {
-    id: auditRef.id, recordType, recordId: String(recordId), incidentId, action, changedAt: serverTimestamp(), ...current,
+  const ref = doc(collection(firestore, 'disaster_audit_logs'));
+  return { ref, data: {
+    id: ref.id, recordType, recordId: String(recordId), incidentId, action, changedAt: serverTimestamp(), ...current,
     ...(before === undefined ? {} : { before }),
     ...(after === undefined ? {} : { after }),
-  });
+  } };
 };
 
 async function records<T>(name: string): Promise<T[]> {
   const snapshot = await getDocs(collection(firestore, name));
   return snapshot.docs.map(item => {
     const data = item.data() as Record<string, unknown>;
-    for (const field of ['startedAt', 'updatedAt', 'createdAt', 'generatedAt', 'reportDate', 'changedAt', 'uploadedAt']) {
+    for (const field of ['startedAt', 'updatedAt', 'createdAt', 'generatedAt', 'reportDate', 'changedAt', 'uploadedAt', 'lastEvacuationSnapshotAt']) {
       if (field in data) data[field] = asIso(data[field]);
     }
     return data as T;
   });
+}
+
+const evacuationSnapshotIntervalMs = 15 * 60 * 1000;
+export async function recordScheduledEvacuationSnapshots(): Promise<void> {
+  const incidents = (await listIncidents()).filter(incident => incident.status === 'Active' || incident.status === 'Monitoring');
+  for (const incident of incidents) {
+    const incidentRef = doc(firestore, names.incidents, String(incident.id));
+    const initial = await getDoc(incidentRef);
+    if (!initial.exists()) continue;
+    const initialData = initial.data();
+    const lastSnapshot = initialData.lastEvacuationSnapshotAt ? new Date(asIso(initialData.lastEvacuationSnapshotAt)).getTime() : 0;
+    if (lastSnapshot && Date.now() - lastSnapshot < evacuationSnapshotIntervalMs) continue;
+    const legacyCenters = initialData.evacuationTrackingInitialized === true
+      ? undefined
+      : await getDocs(firestoreQuery(collection(firestore, names.centers), where('incidentId', '==', incident.id)));
+    const legacyCurrent = legacyCenters?.docs.reduce((sum, center) => sum + (Number(center.data().currentPopulation) || 0), 0) ?? 0;
+
+    await runTransaction(firestore, async transaction => {
+      const currentIncident = await transaction.get(incidentRef);
+      if (!currentIncident.exists()) return;
+      const data = currentIncident.data();
+      if (data.status !== 'Active' && data.status !== 'Monitoring') return;
+      const alreadyTracked = data.evacuationTrackingInitialized === true;
+      const last = data.lastEvacuationSnapshotAt ? new Date(asIso(data.lastEvacuationSnapshotAt)).getTime() : 0;
+      if (last && Date.now() - last < evacuationSnapshotIntervalMs) return;
+      const currentEvacuees = alreadyTracked ? Number(data.currentEvacuees) || 0 : legacyCurrent;
+      const cumulativeEvacuees = alreadyTracked ? Number(data.cumulativeEvacuees) || 0 : currentEvacuees;
+      const timestamp = Timestamp.now();
+      const snapshotRef = doc(collection(firestore, names.evacuationHistory));
+      transaction.set(incidentRef, {
+        currentEvacuees,
+        evacuatedPopulation: currentEvacuees,
+        cumulativeEvacuees,
+        evacuationTrackingInitialized: true,
+        lastEvacuationSnapshotAt: timestamp,
+      }, { merge: true });
+      transaction.set(snapshotRef, {
+        id: snapshotRef.id,
+        incidentId: incident.id,
+        currentEvacuees,
+        cumulativeEvacuees,
+        change: 0,
+        changeType: 'scheduled',
+        recordedAt: serverTimestamp(),
+      });
+    });
+  }
 }
 
 async function nextId(name: string): Promise<number> {
@@ -192,7 +259,16 @@ export async function updateIncident(id: number, input: IncidentInput): Promise<
 }
 export async function deleteIncident(id: number): Promise<boolean> {
   const previous = await getIncident(id); if (!previous) return false;
-  const [centers, damages] = await Promise.all([records<EvacuationCenter>(names.centers), records<StructureDamage>(names.damages)]);
+  const [centers, damages, history] = await Promise.all([
+    records<EvacuationCenter>(names.centers),
+    records<StructureDamage>(names.damages),
+    getDocs(firestoreQuery(collection(firestore, names.evacuationHistory), where('incidentId', '==', id))),
+  ]);
+  for (let offset = 0; offset < history.docs.length; offset += 450) {
+    const historyBatch = writeBatch(firestore);
+    history.docs.slice(offset, offset + 450).forEach(item => historyBatch.delete(item.ref));
+    await historyBatch.commit();
+  }
   const batch = writeBatch(firestore);
   centers.filter(item => item.incidentId === id).forEach(item => {
     batch.delete(doc(firestore, names.centers, String(item.id)));
@@ -213,26 +289,167 @@ export async function listEvacuationCenters(params?: { incidentId?: number; sear
 export async function createEvacuationCenter(input: EvacuationCenterInput): Promise<EvacuationCenter> {
   await ensureSeedData();
   const item = { ...input, id: await nextId(names.centers), updatedAt: new Date().toISOString() };
-  const batch = writeBatch(firestore);
-  batch.set(doc(firestore, names.centers, String(item.id)), { ...item, updatedAt: dateValue(item.updatedAt) });
-  writeAudit(batch, 'evacuation_center', item.id, 'created', item.incidentId, undefined, item);
-  await batch.commit(); return item;
+  await saveEvacuationCenter(item, 'created');
+  return item;
 }
 export async function updateEvacuationCenter(id: number, input: EvacuationCenterInput): Promise<EvacuationCenter | undefined> {
   const previous = (await listEvacuationCenters()).find(item => item.id === id); if (!previous) return undefined;
+  if (input.incidentId !== previous.incidentId) throw new Error('An evacuation center cannot be moved to a different incident.');
   const item = { ...previous, ...input, id, updatedAt: new Date().toISOString() };
-  const batch = writeBatch(firestore);
-  batch.set(doc(firestore, names.centers, String(id)), { ...item, updatedAt: dateValue(item.updatedAt) });
-  writeAudit(batch, 'evacuation_center', id, 'updated', item.incidentId, previous, item);
-  await batch.commit(); return item;
+  await saveEvacuationCenter(item, 'updated', previous);
+  return item;
 }
 export async function deleteEvacuationCenter(id: number): Promise<EvacuationCenter | undefined> {
   const item = (await listEvacuationCenters()).find(record => record.id === id); if (!item) return undefined;
-  const batch = writeBatch(firestore);
-  batch.delete(doc(firestore, names.centers, String(id)));
-  writeAudit(batch, 'evacuation_center', id, 'deleted', item.incidentId, item);
-  await batch.commit(); return item;
+  await saveEvacuationCenter(item, 'deleted', item);
+  return item;
 }
+
+async function saveEvacuationCenter(
+  item: EvacuationCenter,
+  changeType: AuditLog['action'],
+  previous?: EvacuationCenter,
+): Promise<void> {
+  const incidentRef = doc(firestore, names.incidents, String(item.incidentId));
+  const centerRef = doc(firestore, names.centers, String(item.id));
+  const now = new Date();
+  const timestamp = Timestamp.fromDate(now);
+  const initialIncident = await getDoc(incidentRef);
+  if (!initialIncident.exists()) throw new Error('The linked incident no longer exists.');
+  const initialCenters = initialIncident.data().evacuationTrackingInitialized === true
+    ? undefined
+    : await getDocs(firestoreQuery(collection(firestore, names.centers), where('incidentId', '==', item.incidentId)));
+  const legacyCurrent = initialCenters?.docs.reduce((sum, center) => sum + (Number(center.data().currentPopulation) || 0), 0) ?? 0;
+  await runTransaction(firestore, async transaction => {
+    const [incidentSnapshot, centerSnapshot] = await Promise.all([
+      transaction.get(incidentRef),
+      transaction.get(centerRef),
+    ]);
+    if (!incidentSnapshot.exists()) throw new Error('The linked incident no longer exists.');
+    if (changeType === 'created' && centerSnapshot.exists()) throw new Error('The evacuation center ID is already in use. Refresh and try again.');
+    if (changeType !== 'created' && !centerSnapshot.exists()) throw new Error('The evacuation center no longer exists. Refresh and try again.');
+
+    const incidentData = incidentSnapshot.data();
+    const trackingInitialized = incidentData.evacuationTrackingInitialized === true;
+    const previousCurrent = trackingInitialized ? Number(incidentData.currentEvacuees) || 0 : legacyCurrent;
+    const oldPopulation = changeType === 'created' ? 0 : Number(centerSnapshot.data()?.currentPopulation) || 0;
+    const nextPopulation = changeType === 'created' ? item.currentPopulation : changeType === 'deleted' ? 0 : item.currentPopulation;
+    const nextCurrent = Math.max(0, previousCurrent - oldPopulation + nextPopulation);
+    const baselineCumulative = trackingInitialized
+      ? Number(incidentData.cumulativeEvacuees) || 0
+      : previousCurrent;
+    const cumulative = baselineCumulative + Math.max(0, nextCurrent - previousCurrent);
+    const snapshotRef = doc(collection(firestore, names.evacuationHistory));
+    const audit = auditEntry('evacuation_center', item.id, changeType, item.incidentId, previous, changeType === 'deleted' ? undefined : item);
+
+    if (changeType === 'deleted') transaction.delete(centerRef);
+    else transaction.set(centerRef, { ...item, updatedAt: timestamp });
+    transaction.set(incidentRef, {
+      currentEvacuees: nextCurrent,
+      evacuatedPopulation: nextCurrent,
+      cumulativeEvacuees: cumulative,
+      evacuationTrackingInitialized: true,
+      lastEvacuationSnapshotAt: timestamp,
+    }, { merge: true });
+    transaction.set(snapshotRef, {
+      id: snapshotRef.id,
+      incidentId: item.incidentId,
+      centerId: item.id,
+      currentEvacuees: nextCurrent,
+      cumulativeEvacuees: cumulative,
+      change: nextCurrent - previousCurrent,
+      changeType,
+      recordedAt: timestamp,
+    });
+    transaction.set(audit.ref, audit.data);
+  });
+}
+
+export async function transferEvacuees(input: {
+  incidentId: number;
+  sourceCenterId: number;
+  destinationCenterId: number;
+  count: number;
+}): Promise<void> {
+  if (input.sourceCenterId === input.destinationCenterId) throw new Error('Choose two different evacuation centers.');
+  if (!Number.isInteger(input.count) || input.count <= 0) throw new Error('Enter a transfer count greater than zero.');
+  const incidentRef = doc(firestore, names.incidents, String(input.incidentId));
+  const sourceRef = doc(firestore, names.centers, String(input.sourceCenterId));
+  const destinationRef = doc(firestore, names.centers, String(input.destinationCenterId));
+  const [incident, initialSource, initialDestination] = await Promise.all([
+    getDoc(incidentRef),
+    getDoc(sourceRef),
+    getDoc(destinationRef),
+  ]);
+  if (!incident.exists()) throw new Error('The linked incident no longer exists.');
+  if (!initialSource.exists() || !initialDestination.exists()) throw new Error('One of the selected evacuation centers no longer exists.');
+  if (initialSource.data().incidentId !== input.incidentId || initialDestination.data().incidentId !== input.incidentId) {
+    throw new Error('Both centers must belong to the selected incident.');
+  }
+  const legacyCenters = incident.data().evacuationTrackingInitialized === true
+    ? undefined
+    : await getDocs(firestoreQuery(collection(firestore, names.centers), where('incidentId', '==', input.incidentId)));
+  const legacyCurrent = legacyCenters?.docs.reduce((sum, center) => sum + (Number(center.data().currentPopulation) || 0), 0) ?? 0;
+  const timestamp = Timestamp.now();
+  await runTransaction(firestore, async transaction => {
+    const [incidentSnapshot, sourceSnapshot, destinationSnapshot] = await Promise.all([
+      transaction.get(incidentRef),
+      transaction.get(sourceRef),
+      transaction.get(destinationRef),
+    ]);
+    if (!incidentSnapshot.exists() || !sourceSnapshot.exists() || !destinationSnapshot.exists()) {
+      throw new Error('The incident or one of the centers no longer exists.');
+    }
+    const source = sourceSnapshot.data() as EvacuationCenter;
+    const destination = destinationSnapshot.data() as EvacuationCenter;
+    const sourcePopulation = Number(source.currentPopulation) || 0;
+    const destinationPopulation = Number(destination.currentPopulation) || 0;
+    if (sourcePopulation < input.count) throw new Error('The source center does not have enough evacuees for this transfer.');
+    const incidentData = incidentSnapshot.data();
+    const currentEvacuees = incidentData.evacuationTrackingInitialized === true
+      ? Number(incidentData.currentEvacuees) || 0
+      : legacyCurrent;
+    const cumulativeEvacuees = incidentData.evacuationTrackingInitialized === true
+      ? Number(incidentData.cumulativeEvacuees) || 0
+      : currentEvacuees;
+    const snapshotRef = doc(collection(firestore, names.evacuationHistory));
+    const transfer = {
+      incidentId: input.incidentId,
+      sourceCenterId: input.sourceCenterId,
+      destinationCenterId: input.destinationCenterId,
+      sourceCenterName: source.name,
+      destinationCenterName: destination.name,
+      count: input.count,
+      recordedAt: timestamp.toDate().toISOString(),
+    };
+    const audit = auditEntry('evacuation_transfer', snapshotRef.id, 'updated', input.incidentId, undefined, transfer);
+    transaction.set(sourceRef, { currentPopulation: sourcePopulation - input.count, updatedAt: timestamp }, { merge: true });
+    transaction.set(destinationRef, { currentPopulation: destinationPopulation + input.count, updatedAt: timestamp }, { merge: true });
+    transaction.set(incidentRef, {
+      currentEvacuees,
+      evacuatedPopulation: currentEvacuees,
+      cumulativeEvacuees,
+      evacuationTrackingInitialized: true,
+      lastEvacuationSnapshotAt: timestamp,
+    }, { merge: true });
+    transaction.set(snapshotRef, {
+      id: snapshotRef.id,
+      incidentId: input.incidentId,
+      centerId: input.sourceCenterId,
+      transferToCenterId: input.destinationCenterId,
+      transferFromName: source.name,
+      transferToName: destination.name,
+      transferredCount: input.count,
+      currentEvacuees,
+      cumulativeEvacuees,
+      change: 0,
+      changeType: 'transfer',
+      recordedAt: serverTimestamp(),
+    });
+    transaction.set(audit.ref, audit.data);
+  });
+}
+
 export async function listStructureDamages(params?: { incidentId?: number }): Promise<StructureDamage[]> {
   await ensureSeedData(); return (await records<StructureDamage>(names.damages)).filter(item => params?.incidentId === undefined || item.incidentId === params.incidentId).sort((a, b) => b.totallyDamaged - a.totallyDamaged);
 }
@@ -302,17 +519,65 @@ export async function deleteIncidentPhoto(photo: IncidentPhoto): Promise<void> {
 }
 export async function getIncidentOverview(id: number): Promise<IncidentOverview | undefined> {
   const incident = await getIncident(id); if (!incident) return undefined;
-  const [centers, damages] = await Promise.all([listEvacuationCenters({ incidentId: id }), listStructureDamages({ incidentId: id })]);
-  return { incident, centers, damages, totalCenters: centers.length, totalEvacuated: centers.reduce((sum, item) => sum + item.currentPopulation, 0), totalCapacity: centers.reduce((sum, item) => sum + item.capacity, 0), totalFamilies: centers.reduce((sum, item) => sum + item.families, 0), totalPartiallyDamaged: damages.reduce((sum, item) => sum + item.partiallyDamaged, 0), totalTotallyDamaged: damages.reduce((sum, item) => sum + item.totallyDamaged, 0) };
+  const [centers, damages, evacuationHistory] = await Promise.all([
+    listEvacuationCenters({ incidentId: id }),
+    listStructureDamages({ incidentId: id }),
+    listEvacuationHistory(id),
+  ]);
+  return { incident, centers, damages, evacuationHistory, totalCenters: centers.length, totalEvacuated: centers.reduce((sum, item) => sum + item.currentPopulation, 0), totalCapacity: centers.reduce((sum, item) => sum + item.capacity, 0), totalFamilies: centers.reduce((sum, item) => sum + item.families, 0), totalPartiallyDamaged: damages.reduce((sum, item) => sum + item.partiallyDamaged, 0), totalTotallyDamaged: damages.reduce((sum, item) => sum + item.totallyDamaged, 0) };
+}
+export async function listEvacuationHistory(incidentId: number): Promise<EvacuationSnapshot[]> {
+  const snapshot = await getDocs(firestoreQuery(collection(firestore, names.evacuationHistory), where('incidentId', '==', incidentId)));
+  return snapshot.docs.map(entry => {
+    const data = entry.data();
+    return { ...data, id: entry.id, recordedAt: asIso(data.recordedAt) } as EvacuationSnapshot;
+  }).sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
 }
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   const [incidents, centers, damages] = await Promise.all([listIncidents(), listEvacuationCenters(), listStructureDamages()]);
-  return { activeIncidents: incidents.filter(item => item.status === 'Active').length, totalIncidents: incidents.length, totalEvacuationCenters: centers.length, totalEvacuated: centers.reduce((sum, item) => sum + item.currentPopulation, 0), totalCapacity: centers.reduce((sum, item) => sum + item.capacity, 0), totalFamilies: centers.reduce((sum, item) => sum + item.families, 0), partiallyDamaged: damages.reduce((sum, item) => sum + item.partiallyDamaged, 0), totallyDamaged: damages.reduce((sum, item) => sum + item.totallyDamaged, 0), populationByIncident: incidents.map(item => ({ incidentId: item.id, label: item.title, population: centers.filter(center => center.incidentId === item.id).reduce((sum, center) => sum + center.currentPopulation, 0) })), recentIncidents: incidents.slice(0, 4) };
+  const trackedIncidents = incidents.filter(item => item.evacuationTrackingInitialized);
+  return { activeIncidents: incidents.filter(item => item.status === 'Active').length, totalIncidents: incidents.length, totalEvacuationCenters: centers.length, totalEvacuated: centers.reduce((sum, item) => sum + item.currentPopulation, 0), totalCumulativeEvacuees: trackedIncidents.reduce((sum, item) => sum + (item.cumulativeEvacuees ?? 0), 0), trackedIncidentCount: trackedIncidents.length, totalCapacity: centers.reduce((sum, item) => sum + item.capacity, 0), totalFamilies: centers.reduce((sum, item) => sum + item.families, 0), partiallyDamaged: damages.reduce((sum, item) => sum + item.partiallyDamaged, 0), totallyDamaged: damages.reduce((sum, item) => sum + item.totallyDamaged, 0), populationByIncident: incidents.map(item => ({ incidentId: item.id, label: item.title, population: centers.filter(center => center.incidentId === item.id).reduce((sum, center) => sum + center.currentPopulation, 0) })), recentIncidents: incidents.slice(0, 4) };
 }
 export async function generateSituationalReport(input: SituationalReportInput): Promise<SituationalReport> {
   const incident = await getIncident(input.incidentId); if (!incident) throw new Error('Incident not found');
-  const [centers, damages, photos] = await Promise.all([listEvacuationCenters({ incidentId: input.incidentId }), listStructureDamages({ incidentId: input.incidentId }), listIncidentPhotos(input.incidentId)]);
-  return { ...input, reportNumber: `SITREP-${new Date().getFullYear()}-${String(input.incidentId).padStart(3, '0')}`, generatedAt: new Date().toISOString(), incident, centers, damages, photos };
+  const [centers, damages, photos, evacuationHistory] = await Promise.all([listEvacuationCenters({ incidentId: input.incidentId }), listStructureDamages({ incidentId: input.incidentId }), listIncidentPhotos(input.incidentId), listEvacuationHistory(input.incidentId)]);
+  const reportRef = doc(collection(firestore, names.reports));
+  const sequenceRef = doc(firestore, names.reportSequences, String(input.incidentId));
+  const generatedAt = new Date().toISOString();
+  let report: SituationalReport | undefined;
+  await runTransaction(firestore, async transaction => {
+    const sequenceSnapshot = await transaction.get(sequenceRef);
+    const revision = (Number(sequenceSnapshot.data()?.revision) || 0) + 1;
+    report = {
+      ...input,
+      id: reportRef.id,
+      revision,
+      reportNumber: `SITREP-${new Date(generatedAt).getFullYear()}-${String(input.incidentId).padStart(3, '0')}-R${String(revision).padStart(2, '0')}`,
+      generatedAt,
+      incident,
+      centers,
+      damages,
+      photos,
+      evacuationHistory,
+    };
+    const audit = auditEntry('situational_report', report.id, 'created', input.incidentId, undefined, {
+      reportNumber: report.reportNumber,
+      revision: report.revision,
+      generatedAt: report.generatedAt,
+    });
+    transaction.set(sequenceRef, { incidentId: input.incidentId, revision }, { merge: true });
+    transaction.set(reportRef, { ...report, generatedAt: dateValue(report.generatedAt), archivedAt: serverTimestamp() });
+    transaction.set(audit.ref, audit.data);
+  });
+  if (!report) throw new Error('The situation report could not be archived.');
+  return report;
+}
+export async function listSituationalReports(incidentId: number): Promise<SituationalReport[]> {
+  const snapshot = await getDocs(firestoreQuery(collection(firestore, names.reports), where('incidentId', '==', incidentId)));
+  return snapshot.docs.map(entry => {
+    const data = entry.data();
+    return { ...data, id: entry.id, generatedAt: asIso(data.generatedAt) } as SituationalReport;
+  }).sort((a, b) => b.revision - a.revision);
 }
 export async function upsertUser(user: FirestoreUser): Promise<void> { await setDoc(doc(firestore, names.users, user.id), { ...user, createdAt: dateValue(user.createdAt) }, { merge: true }); }
 export async function updateUserRole(id: string, role: UserRole): Promise<void> { await setDoc(doc(firestore, names.users, id), { role }, { merge: true }); }
@@ -359,3 +624,4 @@ export const useCreateStructureDamage = () => mutation<{ data: StructureDamageIn
 export const useUpdateStructureDamage = () => mutation<{ id: number; data: StructureDamageInput }, StructureDamage | undefined>(value => updateStructureDamage(value.id, value.data));
 export const useDeleteStructureDamage = () => mutation<{ id: number }, StructureDamage | undefined>(value => deleteStructureDamage(value.id));
 export const useGenerateSituationalReport = () => mutation<{ data: SituationalReportInput }, SituationalReport>(value => generateSituationalReport(value.data));
+export const useTransferEvacuees = () => mutation<{ incidentId: number; sourceCenterId: number; destinationCenterId: number; count: number }, void>(transferEvacuees);

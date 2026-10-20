@@ -26,14 +26,18 @@ Sentinel is a municipal emergency operations workspace for recording incidents, 
 - `artifacts/api-server/src/routes/disaster.ts` — incident, evacuation center, damage, dashboard, and situational report endpoints.
 - `artifacts/api-server/src/lib/disaster.ts` — seeded starter records and operational aggregation helpers.
 - Firestore collections `disaster_incidents`, `disaster_evacuation_centers`, and `disaster_structure_damages` store disaster records; numeric IDs are persisted in each document.
+- `disaster_evacuation_snapshots` stores timestamped incident-wide current headcounts and cumulative admissions after every evacuation-center create, update, or delete. New snapshot access requires deploying the updated Firestore rules.
+- Active and monitoring incidents also receive a scheduled headcount snapshot every 15 minutes while an authenticated app session is open. This browser-side scheduler does not run when all operator sessions are closed.
+- `disaster_situational_reports` stores immutable SITREP revisions with the incident, headcount history, organization details, photos, and narrative as generated. `disaster_situational_report_sequences` allocates unique per-incident revision numbers.
 - `disaster_audit_logs` stores immutable before/after snapshots for operational changes; `disaster_incident_photos` stores incident photo metadata while image files live in Firebase Storage.
-- Firebase Storage must be enabled for the configured Firebase project. Deploy both `firestore.rules` and `storage.rules` before using audit history or incident photo uploads.
+- Firebase Storage must be enabled for the configured Firebase project. Deploy `firestore.rules` before using audit or evacuation history, and deploy `storage.rules` before incident photo uploads.
 - `lib/api-spec/openapi.yaml` — source-of-truth API contract used to generate typed hooks and validation.
 
 ## Architecture decisions
 
 - Operational totals are derived from evacuation center and structure damage records, so reports and dashboard numbers stay aligned with field updates.
-- Situational reports are generated from current incident records at request time, with narrative sections supplied by the duty officer.
+- Evacuation-center inputs are current headcounts. Cumulative admissions initialize from the incident's current total immediately before tracking begins, then add only positive net incident-wide increases; decreases never subtract. Legacy history is not backfilled, and cumulative admissions are not a unique-person count.
+- Situational reports capture incident records at request time, with narrative sections supplied by the duty officer; generated revisions are archived and remain printable.
 - A generated SITREP includes the incident’s photos available at generation time; regenerate the report after adding or removing photos.
 - Operational writes and audit snapshots are committed together, with audit event times assigned by Firestore. The client-side audit trail is append-only under Firestore rules.
 - The first-load dataset is seeded only when the development database is empty, giving the command overview useful sample data without overwriting existing records.
@@ -41,11 +45,12 @@ Sentinel is a municipal emergency operations workspace for recording incidents, 
 
 ## Product
 
-- Dashboard with active incidents, evacuated population, evacuation center capacity, families, and structure impact totals.
+- Dashboard with active incidents, current and cumulative evacuee totals, evacuation center capacity, families, and structure impact totals.
 - Searchable incident register with status filters and create/edit/delete workflows.
-- Incident detail pages with per-center headcounts, demographic breakdowns, capacity utilization, and damage assessments.
+- Incident detail pages with per-center headcounts, timestamped cumulative trends, demographic breakdowns, capacity utilization, and damage assessments.
+- Coordinators and administrators can transfer headcounts atomically between centers without changing incident totals; family and demographic breakdowns still require separate edits.
 - Incident photo gallery and per-incident change history with actor, server timestamp, and before/after snapshots.
-- Standard SITREP generator with report metadata, operational narrative, incident photos, priority needs, actions taken, next steps, and print-ready preview.
+- Standard SITREP generator with report metadata, versioned archives, current/cumulative evacuation figures, headcount history, operational narrative, incident photos, and print-ready preview.
 - Settings page with operator context and API health status.
 
 ## User preferences

@@ -40,6 +40,28 @@ service cloud.firestore {
       allow create, update, delete: if canOperate();
     }
 
+    match /disaster_evacuation_snapshots/{document} {
+      allow read: if signedIn();
+      allow create, delete: if canOperate();
+      allow update: if false;
+    }
+
+    match /disaster_situational_reports/{document} {
+      allow read: if signedIn();
+      allow create: if canOperate();
+      allow update, delete: if false;
+    }
+
+    match /disaster_situational_report_sequences/{document} {
+      allow read: if canOperate();
+      allow create: if canOperate() && request.resource.data.revision == 1
+        && request.resource.data.incidentId is int;
+      allow update: if canOperate()
+        && request.resource.data.incidentId == resource.data.incidentId
+        && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if false;
+    }
+
     match /disaster_structure_damages/{document} {
       allow read: if signedIn();
       allow create, update, delete: if canOperate();
